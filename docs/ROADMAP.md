@@ -62,13 +62,22 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 ## M4 – TUI
 **Goal:** the nice interactive experience.
 
-- [ ] termbox2 init/teardown, resize handling, always restoring the terminal (also on signals)
-- [ ] Widgets: selectable list, checklist, single-line input, text view with word-wrap, status bar
-- [ ] Screens: Search → Select → Loading → Liked → Disliked → Notes/Options → Result
-- [ ] Keybindings: ↑/↓/j/k, Space toggle, Enter next, Esc back, q quit
-- [ ] Result actions: regenerate (r), quit (q)
+- [x] termbox2 init/teardown, resize handling, always restoring the terminal (also on signals)
+- [x] Widgets: selectable list, checklist, single-line input, text view with word-wrap, status bar
+- [x] Screens: Search → Select → Loading → Liked → Disliked → Notes/Options → Result
+- [x] Keybindings: ↑/↓/j/k, Space toggle, Enter next, Esc back, q quit
+- [x] Result actions: regenerate (r), quit (q)
 
-**Done when:** the full flow works in the TUI, and the M3 line mode remains as `--plain`.
+**Done when:** the full flow works in the TUI, and the M3 line mode remains as `--plain`. Verified
+manually in a real terminal (via tmux) end to end -- Search (typed query against the real Steam
+search API) → Select → Loading → Liked/Disliked checklists → Notes/Options → Result -- including
+a clean terminal restore both on a normal quit and on SIGTERM mid-session. The underlying
+state-machine logic (every screen transition, keybinding, and checklist toggle) also has unit
+tests that don't need a terminal at all. The live reviews fetch and a real LLM call weren't
+reachable from this environment (same limitation as M2/M3), so the TUI's Loading-game and
+Loading-review screens were only exercised against cached data / the `fake` provider, plus one
+real (expected) failure when the reviews endpoint was unreachable, to confirm it degrades
+gracefully (shows the error, doesn't crash) rather than reaching a real review.
 
 ---
 

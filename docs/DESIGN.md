@@ -135,11 +135,19 @@ src/
   core/
     themes.c/.h     build extraction prompt, parse themes JSON
     review.c/.h     build generation prompt
+    pipeline.c/.h   shared fetch-or-cache/call-the-LLM steps, used by both main.c and tui/
   tui/
-    app.c/.h        state machine and main loop
-    widgets.c/.h    list, checklist, line input, spinner, text view
-    clipboard.c/.h  OSC 52 and fallback to wl-copy / xclip / pbcopy
-    editor.c/.h     open text in $EDITOR (suspend TUI, temp file)
+    state.c/.h      pure state machine (screens, keys -> actions, result folding) -- no
+                    termbox2 dependency, unit-tested without a terminal
+    keys.h          the handful of termbox2 TB_KEY_* values state.c reacts to, duplicated
+                    as plain macros so state.c doesn't need to include termbox2.h
+    app.c/.h        termbox2 init/shutdown (incl. signal handling) and the main loop:
+                    draws state, performs blocking IO for the Loading screens, otherwise
+                    polls a key and feeds it to state.c
+    widgets.c/.h    list, checklist, line input, text view (word-wrapped), status bar
+    termbox_impl.c  the one translation unit that #defines TB_IMPL
+    clipboard.c/.h  OSC 52 and fallback to wl-copy / xclip / pbcopy (M5)
+    editor.c/.h     open text in $EDITOR (suspend TUI, temp file) (M5)
 ```
 
 **Layering rule:** `tui/` depends on `core/`, and `core/` depends on `steam/` and `llm/`, which depend on `net/` and `util/`. Nothing below `tui/` knows about the terminal, so every feature works from the CLI subcommands too, which makes testing easy.
