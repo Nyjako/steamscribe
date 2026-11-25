@@ -38,4 +38,7 @@ typedef struct config_t
  * a default file there on first run. All returned strings are arena-allocated. */
 int config_load(arena_t *arena, config_t *out, err_t *err);
 
+/* Regenerates config.ini from `cfg`'s current values. Never writes API keys. */
+int config_save(const config_t *cfg, err_t *err);
+
 #endif

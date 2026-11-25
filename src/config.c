@@ -63,6 +63,31 @@ static int steamscribe_ini_handler(void *user, const char *section, const char *
     return 1;
 }
 
+/* Returns a malloc'd path to config.ini (creating the config directory if
+ * needed), or NULL on failure. The caller frees it. */
+static char *get_config_path(err_t *err)
+{
+    char *config_dir = goblin_appdir_config_dir(CONFIG_APP_NAME);
+    if (!config_dir)
+    {
+        err_set(err, -1, "could not determine config directory");
+        return NULL;
+    }
+
+    if (goblin_appdir_mkdir_p(config_dir) != 0)
+    {
+        err_set(err, -1, "could not create config dir %s", config_dir);
+        free(config_dir);
+        return NULL;
+    }
+
+    char *path = goblin_appdir_join(config_dir, "config.ini");
+    free(config_dir);
+    if (!path) err_set(err, -1, "could not build config path");
+
+    return path;
+}
+
 static void create_default_config_if_missing(const char *path)
 {
     struct stat st;
@@ -90,27 +115,8 @@ static void free_raw_config(raw_config_t *raw)
 
 int config_load(arena_t *arena, config_t *out, err_t *err)
 {
-    char *config_dir = goblin_appdir_config_dir(CONFIG_APP_NAME);
-    if (!config_dir)
-    {
-        err_set(err, -1, "could not determine config directory");
-        return -1;
-    }
-
-    if (goblin_appdir_mkdir_p(config_dir) != 0)
-    {
-        err_set(err, -1, "could not create config dir %s", config_dir);
-        free(config_dir);
-        return -1;
-    }
-
-    char *path = goblin_appdir_join(config_dir, "config.ini");
-    free(config_dir);
-    if (!path)
-    {
-        err_set(err, -1, "could not build config path");
-        return -1;
-    }
+    char *path = get_config_path(err);
+    if (!path) return -1;
 
     create_default_config_if_missing(path);
 
@@ -138,5 +144,43 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
 
     out->verbose = false;
 
+    return 0;
+}
+
+/* Regenerates config.ini from `cfg`'s current values (API keys are never
+ * written -- they only ever come from the environment). This replaces
+ * whatever was in the file, including any comments the user added, which
+ * is an acceptable trade-off for a config file the TUI's Settings screen
+ * can also write. */
+int config_save(const config_t *cfg, err_t *err)
+{
+    char *path = get_config_path(err);
+    if (!path) return -1;
+
+    FILE *fp = fopen(path, "w");
+    free(path);
+    if (!fp)
+    {
+        err_set(err, -1, "could not open config file for writing");
+        return -1;
+    }
+
+    fprintf(fp, "[llm]\n");
+    fprintf(fp, "provider = %s          ; anthropic | openai | ollama\n", cfg->llm_provider);
+    fprintf(fp, "model    = %s\n", cfg->llm_model);
+    if (cfg->llm_base_url[0]) fprintf(fp, "base_url = %s\n", cfg->llm_base_url);
+    else fprintf(fp, "; base_url = http://localhost:1234/v1   ; for LM Studio (provider = openai); ollama defaults to http://localhost:11434\n");
+    fprintf(fp, "num_ctx  = %d              ; ollama only -- raise this if reviews get truncated\n", cfg->llm_num_ctx);
+
+    fprintf(fp, "\n[steam]\n");
+    fprintf(fp, "language = %s\n", cfg->steam_language);
+    fprintf(fp, "review_count = %d            ; reviews to analyze (half positive, half negative)\n", cfg->steam_review_count);
+    fprintf(fp, "cache_ttl_hours = %d\n", cfg->steam_cache_ttl_hours);
+
+    fprintf(fp, "\n[review]\n");
+    fprintf(fp, "default_length = %s        ; short | medium | long\n", cfg->review_default_length);
+    fprintf(fp, "default_tone   = %s       ; casual | neutral | enthusiastic\n", cfg->review_default_tone);
+
+    fclose(fp);
     return 0;
 }
