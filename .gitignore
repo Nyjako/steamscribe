@@ -1,1 +1,10 @@
 /scripts/
+
+# Build output
+/build/
+/out/
+
+# Editor/OS cruft
+.DS_Store
+compile_commands.json
+.cache/

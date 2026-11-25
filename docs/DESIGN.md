@@ -189,6 +189,7 @@ Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`
 | TUI           | termbox2    | CPM, header-only (`DOWNLOAD_ONLY`)         |
 | Config        | inih        | CPM, compile `ini.c` ourselves             |
 | Threads       | pthreads    | `find_package(Threads)`                    |
+| C utilities   | [GOBLIN](https://github.com/Nyjako/GOBLIN) | CPM, header-only (`DOWNLOAD_ONLY`); use for small reusable helpers (argv scanning, string helpers, app dirs, env, URL encoding, ...) instead of hand-rolling them |
 
 **Why libcurl isn't fetched with CPM:** building curl from source also means building a TLS library (OpenSSL, mbedTLS, …). That's slow and fragile. Every target system already has libcurl.
 
@@ -196,6 +197,11 @@ Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
+
+# Some fetched dependencies declare an old cmake_minimum_required() floor that
+# newer CMake refuses outright; this keeps those configuring.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
 project(steamscribe VERSION 0.1.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -208,32 +214,43 @@ find_package(Threads REQUIRED)
 CPMAddPackage(
   NAME cjson
   GITHUB_REPOSITORY DaveGamble/cJSON
-  GIT_TAG v1.7.18
+  GIT_TAG v1.7.19
   OPTIONS "ENABLE_CJSON_TEST OFF" "ENABLE_CJSON_UTILS OFF" "BUILD_SHARED_LIBS OFF")
 
 CPMAddPackage(
   NAME termbox2
   GITHUB_REPOSITORY termbox/termbox2
-  GIT_TAG <pin-a-commit>
+  GIT_TAG v2.7.0
   DOWNLOAD_ONLY YES)
 
 CPMAddPackage(
   NAME inih
   GITHUB_REPOSITORY benhoyt/inih
-  GIT_TAG <pin-a-release>
+  GIT_TAG r63
   DOWNLOAD_ONLY YES)
 
 add_library(inih STATIC ${inih_SOURCE_DIR}/ini.c)
 target_include_directories(inih PUBLIC ${inih_SOURCE_DIR})
 
+CPMAddPackage(
+  NAME goblin
+  GITHUB_REPOSITORY Nyjako/GOBLIN
+  GIT_TAG <pin-a-commit>
+  DOWNLOAD_ONLY YES)
+
+add_library(goblin INTERFACE)
+target_include_directories(goblin INTERFACE ${goblin_SOURCE_DIR}/include)
+
 file(GLOB_RECURSE SRC CONFIGURE_DEPENDS src/*.c)
 add_executable(steamscribe ${SRC})
-target_include_directories(steamscribe PRIVATE src ${cjson_SOURCE_DIR} ${termbox2_SOURCE_DIR})
-target_link_libraries(steamscribe PRIVATE CURL::libcurl cjson inih Threads::Threads)
+target_include_directories(steamscribe PRIVATE src ${termbox2_SOURCE_DIR})
+target_link_libraries(steamscribe PRIVATE CURL::libcurl cjson inih Threads::Threads goblin)
+target_compile_definitions(steamscribe PRIVATE STEAMSCRIBE_VERSION="${PROJECT_VERSION}")
 target_compile_options(steamscribe PRIVATE -Wall -Wextra -Wpedantic)
 ```
 
-(termbox2 needs `#define TB_IMPL` in exactly one `.c` file.)
+(termbox2 needs `#define TB_IMPL` in exactly one `.c` file — not wired in yet, that
+lands with the TUI in M4.)
 
 ---
 

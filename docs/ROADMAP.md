@@ -7,12 +7,12 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 ## M0 – Project skeleton
 **Goal:** an empty app that builds anywhere.
 
-- [ ] Repo layout (`src/`, `tests/`, `cmake/`), `.gitignore`, `.clang-format`
-- [ ] `cmake/CPM.cmake` added; cJSON, termbox2, inih fetched; libcurl found
-- [ ] `steamscribe --version` and `--help`
-- [ ] `util/`: arena, strbuf, error type
-- [ ] CTest wired up with one dummy test
-- [ ] GitHub Actions: build + test on Ubuntu and macOS
+- [x] Repo layout (`src/`, `tests/`, `cmake/`), `.gitignore`, `.clang-format`
+- [x] `cmake/CPM.cmake` added; cJSON, termbox2, inih fetched; libcurl found
+- [x] `steamscribe --version` and `--help`
+- [x] `util/`: arena, strbuf, error type
+- [x] CTest wired up with one dummy test
+- [x] GitHub Actions: build + test on Ubuntu (Linux is the priority platform; macOS CI dropped for now)
 
 **Done when:** a fresh clone builds with two CMake commands and CI is green.
 
