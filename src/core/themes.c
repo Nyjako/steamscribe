@@ -153,3 +153,30 @@ int themes_extract(arena_t *arena, const llm_provider_t *provider, const llm_cfg
     strbuf_free(&response);
     return rc;
 }
+
+char *themes_to_json(const theme_set_t *themes)
+{
+    cJSON *root = cJSON_CreateObject();
+
+    cJSON *liked = cJSON_AddArrayToObject(root, "liked");
+    for (size_t i = 0; i < themes->n_liked; i++)
+    {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "id", themes->liked[i].id);
+        cJSON_AddStringToObject(item, "label", themes->liked[i].label);
+        cJSON_AddItemToArray(liked, item);
+    }
+
+    cJSON *disliked = cJSON_AddArrayToObject(root, "disliked");
+    for (size_t i = 0; i < themes->n_disliked; i++)
+    {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "id", themes->disliked[i].id);
+        cJSON_AddStringToObject(item, "label", themes->disliked[i].label);
+        cJSON_AddItemToArray(disliked, item);
+    }
+
+    char *text = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return text;
+}

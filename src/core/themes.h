@@ -36,4 +36,9 @@ int themes_parse_response(arena_t *arena, const char *llm_text, theme_set_t *out
  * retrying once with a stricter instruction if the first parse fails. */
 int themes_extract(arena_t *arena, const llm_provider_t *provider, const llm_cfg_t *cfg, const game_info_t *game, const review_set_t *reviews, theme_set_t *out, err_t *err);
 
+/* Serializes `themes` back to the same {"liked":[...],"disliked":[...]} shape
+ * themes_parse_response reads, for printing and for caching to themes.json.
+ * Returns a malloc'd string (the caller frees it), or NULL on OOM. */
+char *themes_to_json(const theme_set_t *themes);
+
 #endif

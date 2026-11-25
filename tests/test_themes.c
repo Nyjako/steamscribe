@@ -7,6 +7,7 @@
 #include "util/error.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static review_set_t make_reviews(arena_t *arena)
@@ -192,6 +193,33 @@ static int test_extract_fails_after_retry(void)
     return 0;
 }
 
+static int test_to_json_round_trips(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    const char *text = "{\"liked\":[{\"id\":\"co_op\",\"label\":\"Co-op with friends\"}],\"disliked\":[{\"id\":\"raids\",\"label\":\"Enemy raids\"}]}";
+
+    theme_set_t themes;
+    err_t err;
+    TEST_ASSERT(themes_parse_response(&arena, text, &themes, &err) == 0);
+
+    char *json = themes_to_json(&themes);
+    TEST_ASSERT(json != NULL);
+
+    theme_set_t round_tripped;
+    TEST_ASSERT(themes_parse_response(&arena, json, &round_tripped, &err) == 0);
+    free(json);
+
+    TEST_ASSERT(round_tripped.n_liked == 1);
+    TEST_ASSERT(strcmp(round_tripped.liked[0].id, "co_op") == 0);
+    TEST_ASSERT(round_tripped.n_disliked == 1);
+    TEST_ASSERT(strcmp(round_tripped.disliked[0].label, "Enemy raids") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 int main(void)
 {
     if (test_build_prompt()) return 1;
@@ -201,6 +229,7 @@ int main(void)
     if (test_extract_success()) return 1;
     if (test_extract_retries_once_then_succeeds()) return 1;
     if (test_extract_fails_after_retry()) return 1;
+    if (test_to_json_round_trips()) return 1;
 
     printf("all tests passed\n");
     return 0;
