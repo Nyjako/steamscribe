@@ -88,7 +88,8 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [ ] Copy to clipboard (OSC 52, fallback to `wl-copy` / `xclip` / `pbcopy`)
 - [ ] Edit in `$EDITOR`, then return to the result screen
 - [ ] Save review to `~/.local/share/steamscribe/reviews/`
-- [ ] Add your own custom like/dislike items in the checklist
+- [x] Add your own custom like/dislike items in the checklist
+- [x] Vocabulary/style option (normal vs. simple everyday words) picked per review, right after Length, in both the TUI and `--plain` -- backed by a new `[review] default_vocab` config default (not a roadmap item originally, added on request)
 - [ ] Friendly errors (no key, offline, game not found, rate-limited)
 - [x] ASan/UBSan CI job, no leaks or warnings (pulled forward into a `sanitize` CI job; the whole test suite passes clean under ASan/LSan/UBSan)
 
