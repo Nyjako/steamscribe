@@ -90,7 +90,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [ ] Save review to `~/.local/share/steamscribe/reviews/`
 - [ ] Add your own custom like/dislike items in the checklist
 - [ ] Friendly errors (no key, offline, game not found, rate-limited)
-- [ ] ASan/UBSan CI job, no leaks or warnings
+- [x] ASan/UBSan CI job, no leaks or warnings (pulled forward into a `sanitize` CI job; the whole test suite passes clean under ASan/LSan/UBSan)
 
 **Done when:** you'd happily use it for your own reviews. **Tag v0.5.**
 
