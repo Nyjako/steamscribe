@@ -290,6 +290,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 | Risk                                         | Mitigation                                           |
 |----------------------------------------------|------------------------------------------------------|
 | Steam changes or rate-limits endpoints       | caching, retries, fixtures, clear error message      |
+| `/appreviews/` redirects a plain HTTP client (seen from at least one cloud/datacenter network -- a 302 to the store homepage instead of JSON) | `http_get` doesn't follow redirects and reports the redirect target instead of trying to parse the HTML; `search`/`appdetails` haven't shown this. Root cause (IP reputation vs. a TLS/JS bot check curl can never pass) isn't confirmed -- if it turns out to block real users too, this endpoint may need a fallback (e.g. a user-supplied Steam Web API key) |
 | LLM returns invalid JSON                     | fence stripping, one retry, debug log                |
 | Generated text sounds like AI                | short default, "plain words" rules, easy edit/regen  |
 | Other players' opinions leak into the review | only checked labels and user notes are sent in step 2 |
