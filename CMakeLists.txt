@@ -47,7 +47,7 @@ target_include_directories(goblin INTERFACE ${goblin_SOURCE_DIR}/include)
 
 file(GLOB_RECURSE STEAMSCRIBE_SRC CONFIGURE_DEPENDS src/*.c)
 add_executable(steamscribe ${STEAMSCRIBE_SRC})
-target_include_directories(steamscribe PRIVATE src ${termbox2_SOURCE_DIR})
+target_include_directories(steamscribe PRIVATE src ${cjson_SOURCE_DIR} ${termbox2_SOURCE_DIR})
 target_link_libraries(steamscribe PRIVATE CURL::libcurl cjson inih Threads::Threads goblin)
 target_compile_definitions(steamscribe PRIVATE STEAMSCRIBE_VERSION="${PROJECT_VERSION}")
 target_compile_options(steamscribe PRIVATE -Wall -Wextra -Wpedantic)
