@@ -111,13 +111,22 @@ Parsing: strip ```` ``` ```` fences if present and parse with cJSON. On failure,
 that side once with "return only valid JSON". On a second failure, show an error with the
 raw output in a debug log.
 
+The user can also add their own item to either side's checklist -- a label the LLM never
+surfaced, typed in and checked by default (`themes_add_custom_item`, in both the TUI and
+`--plain`). These are appended to the in-memory list used for that one review; they are
+never written back into the themes cache, so a fresh load for the same game won't carry
+someone else's custom entry.
+
 ### 4.2 Review generation
-Input: game name, **only the checked labels**, the user's free-text notes, recommend yes/no, length, tone.
+Input: game name, **only the checked labels**, the user's free-text notes, recommend yes/no, length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
 - Use only the provided points. Don't invent experiences, numbers, or features.
 - Short = 2–4 sentences. Medium = 1–2 paragraphs. Long = 3–4 paragraphs.
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
+- Vocabulary: "normal" adds no extra line; "simple" adds one telling the model to use
+  plain, everyday words and avoid fancy or technical vocabulary. Picked per review, right
+  after length, in both the TUI and `--plain`; defaults from `[review] default_vocab`.
 
 ### 4.3 Providers
 A small vtable so backends are swappable, with an optional second entry point for

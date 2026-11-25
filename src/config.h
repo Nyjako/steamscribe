@@ -30,6 +30,7 @@ typedef struct config_t
     /* [review] */
     char *review_default_length; /* "short" | "medium" | "long" */
     char *review_default_tone;   /* "casual" | "neutral" | "enthusiastic" */
+    char *review_default_vocab;  /* "normal" | "simple" */
 
     bool verbose;
 } config_t;

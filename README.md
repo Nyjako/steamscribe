@@ -21,6 +21,7 @@ $ steamscribe valheim
   Anything else? > great with friends, a bit lonely solo
   Recommend it? (y/n) > y
   Length: (s)hort / (m)edium / (l)ong > s
+  Words: (n)ormal / (s)imple > n
 
   ── Your review ──────────────────────────────
   I really like the art style. It's simple but looks
@@ -38,8 +39,8 @@ $ steamscribe valheim
 - Search Steam games by name
 - Fetch game info and player reviews from Steam's public store endpoints, with no Steam account or key needed
 - AI pulls out common likes and dislikes from the reviews
-- Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes
-- Generates a review in your chosen length and tone, using **only the points you confirmed**
+- Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- and you can add your own items the AI didn't surface
+- Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
 - Copy to clipboard, edit in `$EDITOR`, regenerate, or save locally
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
 - Press **F2** in the TUI to change provider/model/base URL/context size without leaving the app or hand-editing `config.ini`
@@ -97,6 +98,7 @@ cache_ttl_hours = 24
 [review]
 default_length = short        ; short | medium | long
 default_tone   = casual       ; casual | neutral | enthusiastic
+default_vocab  = normal       ; normal | simple (plain, everyday words)
 ```
 
 API key, read from the environment (never stored in the config):

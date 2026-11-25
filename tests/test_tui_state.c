@@ -30,6 +30,7 @@ static config_t make_fake_config(arena_t *arena)
     cfg.steam_cache_ttl_hours = 24;
     cfg.review_default_length = arena_strdup(arena, "short");
     cfg.review_default_tone = arena_strdup(arena, "casual");
+    cfg.review_default_vocab = arena_strdup(arena, "normal");
     cfg.verbose = false;
     return cfg;
 }
@@ -302,9 +303,126 @@ static int test_notes_flow_to_generate_review(void)
     TEST_ASSERT(state.recommend == true);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
 
-    TEST_ASSERT(tui_handle_key(&state, 'm', 0) == TUI_ACTION_GENERATE_REVIEW);
+    TEST_ASSERT(tui_handle_key(&state, 'm', 0) == TUI_ACTION_NONE);
     TEST_ASSERT(state.length == REVIEW_LEN_MEDIUM);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_VOCAB);
+
+    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_GENERATE_REVIEW);
+    TEST_ASSERT(state.vocab == REVIEW_VOCAB_SIMPLE);
     TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_REVIEW);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_vocab_step_esc_goes_back_to_length(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_VOCAB;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_checklist_add_custom_item(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    theme_set_t themes = make_game_themes(&arena);
+    tui_apply_game_loaded(&state, 892970, game, themes);
+
+    TEST_ASSERT(state.themes.n_liked == 2);
+
+    tui_handle_key(&state, 'n', 0);
+    TEST_ASSERT(state.adding_item);
+
+    tui_handle_key(&state, 'B', 0);
+    tui_handle_key(&state, 'o', 0);
+    tui_handle_key(&state, 's', 0);
+    tui_handle_key(&state, 's', 0);
+    TEST_ASSERT(strcmp(state.custom_item_input, "Boss") == 0);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(!state.adding_item);
+    TEST_ASSERT(state.custom_item_input_len == 0);
+    TEST_ASSERT(state.themes.n_liked == 3);
+    TEST_ASSERT(strcmp(state.themes.liked[2].label, "Boss") == 0);
+    TEST_ASSERT(state.themes.liked[2].checked); /* added items start checked */
+    TEST_ASSERT(state.liked_cursor == 2);        /* cursor jumps to the new item */
+
+    /* original items are untouched */
+    TEST_ASSERT(strcmp(state.themes.liked[0].label, "Building system") == 0);
+    TEST_ASSERT(strcmp(state.themes.liked[1].label, "Co-op with friends") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_checklist_add_custom_item_esc_cancels(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    theme_set_t themes = make_game_themes(&arena);
+    tui_apply_game_loaded(&state, 892970, game, themes);
+
+    tui_handle_key(&state, 'n', 0);
+    tui_handle_key(&state, 'x', 0);
+    TEST_ASSERT(strcmp(state.custom_item_input, "x") == 0);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(!state.adding_item);
+    TEST_ASSERT(state.custom_item_input_len == 0);
+    TEST_ASSERT(state.themes.n_liked == 2); /* nothing added */
+
+    /* Esc cancelled the add, not the whole screen */
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIKED);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_checklist_add_blank_item_is_noop(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    theme_set_t themes = make_game_themes(&arena);
+    tui_apply_game_loaded(&state, 892970, game, themes);
+
+    tui_handle_key(&state, 'n', 0);
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(!state.adding_item);
+    TEST_ASSERT(state.themes.n_liked == 2); /* blank label adds nothing */
 
     arena_free(&arena);
     return 0;
@@ -623,7 +741,11 @@ int main(void)
     if (test_select_esc_goes_back_to_search()) return 1;
     if (test_game_loaded_lands_on_liked()) return 1;
     if (test_checklist_toggle_and_navigate()) return 1;
+    if (test_checklist_add_custom_item()) return 1;
+    if (test_checklist_add_custom_item_esc_cancels()) return 1;
+    if (test_checklist_add_blank_item_is_noop()) return 1;
     if (test_notes_flow_to_generate_review()) return 1;
+    if (test_vocab_step_esc_goes_back_to_length()) return 1;
     if (test_result_screen_regenerate_and_quit()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;
     if (test_review_failed_lands_on_result_with_status()) return 1;

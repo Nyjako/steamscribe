@@ -51,4 +51,11 @@ int themes_extract(arena_t *arena, const llm_provider_t *provider, const llm_cfg
  * Returns a malloc'd string (the caller frees it), or NULL on OOM. */
 char *themes_to_json(const theme_set_t *themes);
 
+/* Appends a user-typed item (checked by default, since the user is adding it
+ * specifically to include it) to items/count, growing the array from
+ * `arena`. For checklist entries the LLM didn't surface. Not persisted to
+ * the themes cache -- callers add these to the in-memory set used for one
+ * review, not to what themes_extract returns. */
+void themes_add_custom_item(arena_t *arena, theme_t **items, size_t *count, const char *label);
+
 #endif

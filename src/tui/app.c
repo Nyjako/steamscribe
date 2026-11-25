@@ -68,13 +68,17 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_LIKED:
-            widgets_draw_header(1, "What did YOU like? Space toggles, Enter continues, Esc back, q quits");
+            widgets_draw_header(1, state->adding_item ? "Type a new liked item, Enter to add, Esc to cancel"
+                                                        : "What did YOU like? Space toggles, (n) add your own, Enter continues, Esc back, q quits");
             widgets_draw_checklist(3, state->themes.liked, state->themes.n_liked, state->liked_cursor);
+            if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_liked + 1, "New item >", state->custom_item_input);
             break;
 
         case TUI_SCREEN_DISLIKED:
-            widgets_draw_header(1, "What bothered you? Space toggles, Enter continues, Esc back, q quits");
+            widgets_draw_header(1, state->adding_item ? "Type a new disliked item, Enter to add, Esc to cancel"
+                                                        : "What bothered you? Space toggles, (n) add your own, Enter continues, Esc back, q quits");
             widgets_draw_checklist(3, state->themes.disliked, state->themes.n_disliked, state->disliked_cursor);
+            if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_disliked + 1, "New item >", state->custom_item_input);
             break;
 
         case TUI_SCREEN_NOTES:
@@ -98,6 +102,11 @@ static void draw(app_state_t *state, char spinner_ch)
             if (state->notes_step == TUI_NOTES_STEP_LENGTH)
             {
                 tb_print(2, 5, TB_DEFAULT, TB_DEFAULT, "Length: (s)hort / (m)edium / (l)ong >");
+            }
+
+            if (state->notes_step == TUI_NOTES_STEP_VOCAB)
+            {
+                tb_print(2, 5, TB_DEFAULT, TB_DEFAULT, "Words: (n)ormal / (s)imple (simpler, everyday words) >");
             }
             break;
 
@@ -230,6 +239,7 @@ static void *bg_generate_review_thread(void *argp)
         req.recommend = ctx->state->recommend;
         req.length = ctx->state->length;
         req.tone = ctx->state->tone;
+        req.vocab = ctx->state->vocab;
 
         rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
     }

@@ -257,6 +257,53 @@ static int test_extract_retries_within_a_side_then_succeeds(void)
     return 0;
 }
 
+static int test_add_custom_item_to_empty_set(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    theme_t *items = NULL;
+    size_t count = 0;
+
+    themes_add_custom_item(&arena, &items, &count, "Great soundtrack");
+
+    TEST_ASSERT(count == 1);
+    TEST_ASSERT(strcmp(items[0].label, "Great soundtrack") == 0);
+    TEST_ASSERT(items[0].checked); /* a custom item is checked by default */
+    TEST_ASSERT(items[0].id != NULL && items[0].id[0] != '\0');
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_add_custom_item_appends_and_keeps_existing(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    theme_t *items = (theme_t *)arena_alloc(&arena, 2 * sizeof(theme_t));
+    items[0].id = arena_strdup(&arena, "building");
+    items[0].label = arena_strdup(&arena, "Building system");
+    items[0].checked = true;
+    items[1].id = arena_strdup(&arena, "co_op");
+    items[1].label = arena_strdup(&arena, "Co-op with friends");
+    items[1].checked = false;
+    size_t count = 2;
+
+    themes_add_custom_item(&arena, &items, &count, "Boss fights");
+
+    TEST_ASSERT(count == 3);
+    TEST_ASSERT(strcmp(items[0].label, "Building system") == 0);
+    TEST_ASSERT(items[0].checked);
+    TEST_ASSERT(strcmp(items[1].label, "Co-op with friends") == 0);
+    TEST_ASSERT(!items[1].checked);
+    TEST_ASSERT(strcmp(items[2].label, "Boss fights") == 0);
+    TEST_ASSERT(items[2].checked);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_extract_fails_after_retry_exhausted(void)
 {
     arena_t arena;
@@ -290,6 +337,8 @@ int main(void)
     if (test_extract_two_pass_merges_sides()) return 1;
     if (test_extract_retries_within_a_side_then_succeeds()) return 1;
     if (test_extract_fails_after_retry_exhausted()) return 1;
+    if (test_add_custom_item_to_empty_set()) return 1;
+    if (test_add_custom_item_appends_and_keeps_existing()) return 1;
 
     printf("all tests passed\n");
     return 0;

@@ -16,6 +16,12 @@ static review_tone_t tone_from_config(const config_t *cfg)
     return REVIEW_TONE_CASUAL;
 }
 
+static review_vocab_t vocab_from_config(const config_t *cfg)
+{
+    if (strcmp(cfg->review_default_vocab, "simple") == 0) return REVIEW_VOCAB_SIMPLE;
+    return REVIEW_VOCAB_NORMAL;
+}
+
 void tui_state_init(app_state_t *state, arena_t *arena, config_t *cfg, const char *initial_query, uint32_t initial_appid)
 {
     memset(state, 0, sizeof(*state));
@@ -23,6 +29,7 @@ void tui_state_init(app_state_t *state, arena_t *arena, config_t *cfg, const cha
     state->cfg = cfg;
     state->screen = TUI_SCREEN_SEARCH;
     state->tone = tone_from_config(cfg);
+    state->vocab = vocab_from_config(cfg);
     state->length = REVIEW_LEN_SHORT;
 
     if (initial_appid != 0)
@@ -107,8 +114,60 @@ static tui_action_t handle_select_key(app_state_t *state, uint32_t ch, uint16_t 
     return TUI_ACTION_NONE;
 }
 
-static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16_t key, theme_t *items, size_t count, size_t *cursor, tui_screen_t next_screen, tui_screen_t back_screen)
+/* Resets the "add a custom item" text buffer, whether entering or leaving
+ * that sub-mode. */
+static void adding_item_reset(app_state_t *state)
 {
+    state->adding_item = false;
+    state->custom_item_input_len = 0;
+    state->custom_item_input[0] = '\0';
+}
+
+static tui_action_t handle_adding_item_key(app_state_t *state, uint32_t ch, uint16_t key, bool is_liked_side, size_t *cursor)
+{
+    if (key == TUI_KEY_ESC)
+    {
+        adding_item_reset(state);
+        return TUI_ACTION_NONE;
+    }
+
+    if (key == TUI_KEY_ENTER)
+    {
+        if (state->custom_item_input_len > 0)
+        {
+            if (is_liked_side) themes_add_custom_item(state->arena, &state->themes.liked, &state->themes.n_liked, state->custom_item_input);
+            else themes_add_custom_item(state->arena, &state->themes.disliked, &state->themes.n_disliked, state->custom_item_input);
+
+            *cursor = (is_liked_side ? state->themes.n_liked : state->themes.n_disliked) - 1;
+        }
+
+        adding_item_reset(state);
+        return TUI_ACTION_NONE;
+    }
+
+    if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
+    {
+        if (state->custom_item_input_len > 0) state->custom_item_input[--state->custom_item_input_len] = '\0';
+        return TUI_ACTION_NONE;
+    }
+
+    if (is_printable(ch) && state->custom_item_input_len + 1 < sizeof(state->custom_item_input))
+    {
+        state->custom_item_input[state->custom_item_input_len++] = (char)ch;
+        state->custom_item_input[state->custom_item_input_len] = '\0';
+    }
+
+    return TUI_ACTION_NONE;
+}
+
+static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16_t key, bool is_liked_side, tui_screen_t next_screen, tui_screen_t back_screen)
+{
+    theme_t *items = is_liked_side ? state->themes.liked : state->themes.disliked;
+    size_t count = is_liked_side ? state->themes.n_liked : state->themes.n_disliked;
+    size_t *cursor = is_liked_side ? &state->liked_cursor : &state->disliked_cursor;
+
+    if (state->adding_item) return handle_adding_item_key(state, ch, key, is_liked_side, cursor);
+
     if (ch == 'q')
     {
         state->screen = TUI_SCREEN_QUIT;
@@ -136,6 +195,12 @@ static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16
     if (ch == ' ' && count > 0)
     {
         items[*cursor].checked = !items[*cursor].checked;
+        return TUI_ACTION_NONE;
+    }
+
+    if (ch == 'n')
+    {
+        state->adding_item = true;
         return TUI_ACTION_NONE;
     }
 
@@ -202,6 +267,19 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
             if (ch == 's' || ch == 'S') state->length = REVIEW_LEN_SHORT;
             else if (ch == 'm' || ch == 'M') state->length = REVIEW_LEN_MEDIUM;
             else if (ch == 'l' || ch == 'L') state->length = REVIEW_LEN_LONG;
+            else return TUI_ACTION_NONE;
+
+            state->notes_step = TUI_NOTES_STEP_VOCAB;
+            return TUI_ACTION_NONE;
+
+        case TUI_NOTES_STEP_VOCAB:
+            if (key == TUI_KEY_ESC)
+            {
+                state->notes_step = TUI_NOTES_STEP_LENGTH;
+                return TUI_ACTION_NONE;
+            }
+            if (ch == 'n' || ch == 'N') state->vocab = REVIEW_VOCAB_NORMAL;
+            else if (ch == 's' || ch == 'S') state->vocab = REVIEW_VOCAB_SIMPLE;
             else return TUI_ACTION_NONE;
 
             state->screen = TUI_SCREEN_LOADING_REVIEW;
@@ -439,10 +517,10 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
             return handle_select_key(state, ch, key);
 
         case TUI_SCREEN_LIKED:
-            return handle_checklist_key(state, ch, key, state->themes.liked, state->themes.n_liked, &state->liked_cursor, TUI_SCREEN_DISLIKED, TUI_SCREEN_SELECT);
+            return handle_checklist_key(state, ch, key, true, TUI_SCREEN_DISLIKED, TUI_SCREEN_SELECT);
 
         case TUI_SCREEN_DISLIKED:
-            return handle_checklist_key(state, ch, key, state->themes.disliked, state->themes.n_disliked, &state->disliked_cursor, TUI_SCREEN_NOTES, TUI_SCREEN_LIKED);
+            return handle_checklist_key(state, ch, key, false, TUI_SCREEN_NOTES, TUI_SCREEN_LIKED);
 
         case TUI_SCREEN_NOTES:
             return handle_notes_key(state, ch, key);
@@ -497,6 +575,7 @@ void tui_apply_game_loaded(app_state_t *state, uint32_t appid, game_info_t game,
     state->themes = themes;
     state->liked_cursor = 0;
     state->disliked_cursor = 0;
+    adding_item_reset(state);
     state->status[0] = '\0';
     state->screen = TUI_SCREEN_LIKED;
 }
