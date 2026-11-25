@@ -21,12 +21,12 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 ## M1 – Steam client (CLI)
 **Goal:** talk to Steam reliably.
 
-- [ ] `net/http`: GET with timeouts, User-Agent, retries/backoff, URL encoding
-- [ ] `steamscribe search <name>` lists matches (id, name)
-- [ ] `steamscribe info <appid>` prints name, description, genres, review score
-- [ ] Reviews fetch with cursor pagination, positive and negative split, filtering short reviews
-- [ ] File cache with TTL under XDG cache dir
-- [ ] Fixtures plus offline tests for JSON parsing
+- [x] `net/http`: GET with timeouts, User-Agent, retries/backoff, URL encoding (URL encoding lives at the call site via GOBLIN's `url.h`, not inside `net/http` itself)
+- [x] `steamscribe search <name>` lists matches (id, name)
+- [x] `steamscribe info <appid>` prints name, description, genres, review score (review score is best-effort: `info` still succeeds and notes the failure on stderr if the reviews endpoint is unreachable)
+- [x] Reviews fetch with cursor pagination, positive and negative split, filtering short reviews
+- [x] File cache with TTL under XDG cache dir (only `details.json` is cached so far; the review score lookup isn't cached yet since it's one cheap request)
+- [x] Fixtures plus offline tests for JSON parsing
 
 **Done when:** `steamscribe info 892970` works, and a second run is served from cache.
 
