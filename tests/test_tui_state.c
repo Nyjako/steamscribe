@@ -16,13 +16,32 @@ static theme_t make_theme(arena_t *arena, const char *id, const char *label)
     return t;
 }
 
+static config_t make_fake_config(arena_t *arena)
+{
+    config_t cfg;
+    cfg.llm_provider = arena_strdup(arena, "anthropic");
+    cfg.llm_model = arena_strdup(arena, "claude-haiku-5-5");
+    cfg.llm_base_url = arena_strdup(arena, "");
+    cfg.llm_num_ctx = 8192;
+    cfg.anthropic_api_key = arena_strdup(arena, "");
+    cfg.openai_api_key = arena_strdup(arena, "");
+    cfg.steam_language = arena_strdup(arena, "english");
+    cfg.steam_review_count = 200;
+    cfg.steam_cache_ttl_hours = 24;
+    cfg.review_default_length = arena_strdup(arena, "short");
+    cfg.review_default_tone = arena_strdup(arena, "casual");
+    cfg.verbose = false;
+    return cfg;
+}
+
 static int test_init_prefills_search(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, "valheim", 0);
+    tui_state_init(&state, &arena, &cfg, "valheim", 0);
 
     TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
     TEST_ASSERT(strcmp(state.search_input, "valheim") == 0);
@@ -36,8 +55,9 @@ static int test_init_with_appid_skips_search(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 892970);
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
     TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_GAME);
     TEST_ASSERT(state.appid == 892970);
@@ -51,8 +71,9 @@ static int test_search_typing_and_enter(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 0);
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
 
     TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE); /* empty input: no-op */
 
@@ -75,8 +96,9 @@ static int test_apply_search_results_zero_one_many(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, "x", 0);
+    tui_state_init(&state, &arena, &cfg, "x", 0);
 
     steam_search_results_t empty = {0};
     tui_apply_search_results(&state, empty);
@@ -109,8 +131,9 @@ static int test_select_screen_navigation(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, "x", 0);
+    tui_state_init(&state, &arena, &cfg, "x", 0);
 
     steam_search_result_t items[3];
     items[0].appid = 10;
@@ -149,8 +172,9 @@ static int test_select_esc_goes_back_to_search(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, "x", 0);
+    tui_state_init(&state, &arena, &cfg, "x", 0);
 
     steam_search_result_t items[2];
     items[0].appid = 1;
@@ -189,8 +213,9 @@ static int test_game_loaded_lands_on_liked(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 892970);
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
     game_info_t game;
     memset(&game, 0, sizeof(game));
@@ -212,8 +237,9 @@ static int test_checklist_toggle_and_navigate(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 892970);
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
     game_info_t game;
     memset(&game, 0, sizeof(game));
@@ -253,8 +279,9 @@ static int test_notes_flow_to_generate_review(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 892970);
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
     game_info_t game;
     memset(&game, 0, sizeof(game));
@@ -288,8 +315,9 @@ static int test_result_screen_regenerate_and_quit(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 892970);
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
     tui_apply_review_generated(&state, (char *)"a review");
     TEST_ASSERT(state.screen == TUI_SCREEN_RESULT);
@@ -310,8 +338,9 @@ static int test_ctrl_c_quits_from_any_screen(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 0);
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
 
     TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_C) == TUI_ACTION_QUIT);
     TEST_ASSERT(state.screen == TUI_SCREEN_QUIT);
@@ -325,12 +354,260 @@ static int test_review_failed_lands_on_result_with_status(void)
     arena_t arena;
     arena_init(&arena, 0);
 
+    config_t cfg = make_fake_config(&arena);
     app_state_t state;
-    tui_state_init(&state, &arena, REVIEW_TONE_CASUAL, NULL, 892970);
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
     tui_apply_review_failed(&state, "boom");
     TEST_ASSERT(state.screen == TUI_SCREEN_RESULT);
     TEST_ASSERT(strstr(state.status, "boom") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_f2_opens_settings_prefilled_from_cfg(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "valheim", 0);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_F2) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS);
+    TEST_ASSERT(state.settings_return_screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_PROVIDER);
+    TEST_ASSERT(state.settings_provider_index == 0); /* "anthropic" */
+    TEST_ASSERT(strcmp(state.settings_model, "claude-haiku-5-5") == 0);
+    TEST_ASSERT(strcmp(state.settings_base_url, "") == 0);
+    TEST_ASSERT(strcmp(state.settings_num_ctx, "8192") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_field_navigation_and_provider_cycling(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_RIGHT); /* anthropic -> openai */
+    TEST_ASSERT(state.settings_provider_index == 1);
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_RIGHT); /* openai -> ollama */
+    TEST_ASSERT(state.settings_provider_index == 2);
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_RIGHT); /* wraps back to anthropic */
+    TEST_ASSERT(state.settings_provider_index == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_LEFT); /* wraps backward to ollama */
+    TEST_ASSERT(state.settings_provider_index == 2);
+
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_MODEL);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_BASE_URL);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+    tui_handle_key(&state, 'j', 0); /* bottom: no-op */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+    tui_handle_key(&state, 'k', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_BASE_URL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_edit_model_field(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 'j', 0); /* -> Model field */
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.settings_editing);
+
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    TEST_ASSERT(strcmp(state.settings_model, "") == 0);
+
+    tui_handle_key(&state, 'q', 0);
+    tui_handle_key(&state, 'w', 0);
+    tui_handle_key(&state, 'e', 0);
+    tui_handle_key(&state, 'n', 0);
+    TEST_ASSERT(strcmp(state.settings_model, "qwen") == 0);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(!state.settings_editing);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS); /* still on Settings, just out of edit mode */
+
+    /* cfg itself is untouched until Ctrl+S */
+    TEST_ASSERT(strcmp(cfg.llm_model, "claude-haiku-5-5") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_num_ctx_field_is_numeric_only(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0); /* -> Num ctx field */
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* edit */
+
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    TEST_ASSERT(strcmp(state.settings_num_ctx, "") == 0);
+
+    tui_handle_key(&state, 'x', 0); /* rejected: not a digit */
+    TEST_ASSERT(strcmp(state.settings_num_ctx, "") == 0);
+
+    tui_handle_key(&state, '4', 0);
+    tui_handle_key(&state, '0', 0);
+    tui_handle_key(&state, '9', 0);
+    tui_handle_key(&state, '6', 0);
+    TEST_ASSERT(strcmp(state.settings_num_ctx, "4096") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_esc_while_editing_reverts_field(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 'j', 0); /* -> Model field */
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'x', 0);
+    tui_handle_key(&state, 'x', 0);
+    TEST_ASSERT(strstr(state.settings_model, "xx") != NULL);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(!state.settings_editing);
+    TEST_ASSERT(strcmp(state.settings_model, "claude-haiku-5-5") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_esc_in_nav_mode_discards_and_returns(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "valheim", 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_RIGHT); /* change provider in the staging buffer only */
+    TEST_ASSERT(state.settings_provider_index == 1);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(strcmp(cfg.llm_provider, "anthropic") == 0); /* untouched */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_ctrl_s_commits_to_cfg_and_returns_action(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "valheim", 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_RIGHT); /* -> openai */
+    tui_handle_key(&state, 'j', 0);                 /* -> Model */
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);        /* edit */
+    tui_handle_key(&state, 'x', 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);        /* confirm edit */
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
+    /* cfg is updated synchronously by the key handler; app.c still has to persist it to disk */
+    TEST_ASSERT(strcmp(cfg.llm_provider, "openai") == 0);
+    TEST_ASSERT(strstr(cfg.llm_model, "x") != NULL);
+
+    tui_apply_settings_saved(&state);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(strcmp(state.status, "") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_save_failed_stays_on_settings_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    tui_apply_settings_save_failed(&state, "disk full");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS);
+    TEST_ASSERT(strstr(state.status, "disk full") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_q_quits_in_nav_mode(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    TEST_ASSERT(tui_handle_key(&state, 'q', 0) == TUI_ACTION_QUIT);
+    TEST_ASSERT(state.screen == TUI_SCREEN_QUIT);
 
     arena_free(&arena);
     return 0;
@@ -350,6 +627,15 @@ int main(void)
     if (test_result_screen_regenerate_and_quit()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;
     if (test_review_failed_lands_on_result_with_status()) return 1;
+    if (test_f2_opens_settings_prefilled_from_cfg()) return 1;
+    if (test_settings_field_navigation_and_provider_cycling()) return 1;
+    if (test_settings_edit_model_field()) return 1;
+    if (test_settings_num_ctx_field_is_numeric_only()) return 1;
+    if (test_settings_esc_while_editing_reverts_field()) return 1;
+    if (test_settings_esc_in_nav_mode_discards_and_returns()) return 1;
+    if (test_settings_ctrl_s_commits_to_cfg_and_returns_action()) return 1;
+    if (test_settings_save_failed_stays_on_settings_with_status()) return 1;
+    if (test_settings_q_quits_in_nav_mode()) return 1;
 
     printf("all tests passed\n");
     return 0;
