@@ -304,6 +304,62 @@ static int test_add_custom_item_appends_and_keeps_existing(void)
     return 0;
 }
 
+static int test_move_item_between_sides(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    theme_t *liked = (theme_t *)arena_alloc(&arena, 2 * sizeof(theme_t));
+    liked[0].id = arena_strdup(&arena, "building");
+    liked[0].label = arena_strdup(&arena, "Building system");
+    liked[0].checked = true;
+    liked[1].id = arena_strdup(&arena, "ammo");
+    liked[1].label = arena_strdup(&arena, "Tense resource management");
+    liked[1].checked = false;
+    size_t n_liked = 2;
+
+    theme_t *disliked = NULL;
+    size_t n_disliked = 0;
+
+    /* Move "Tense resource management" (index 1) from liked to disliked --
+     * the player actually found it a downside, not a plus. */
+    themes_move_item(&arena, &liked, &n_liked, &disliked, &n_disliked, 1);
+
+    TEST_ASSERT(n_liked == 1);
+    TEST_ASSERT(strcmp(liked[0].label, "Building system") == 0);
+
+    TEST_ASSERT(n_disliked == 1);
+    TEST_ASSERT(strcmp(disliked[0].label, "Tense resource management") == 0);
+    TEST_ASSERT(strcmp(disliked[0].id, "ammo") == 0);
+    TEST_ASSERT(!disliked[0].checked); /* checked state carries over as-is */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_move_item_out_of_range_is_noop(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    theme_t *liked = (theme_t *)arena_alloc(&arena, 1 * sizeof(theme_t));
+    liked[0].id = arena_strdup(&arena, "building");
+    liked[0].label = arena_strdup(&arena, "Building system");
+    liked[0].checked = true;
+    size_t n_liked = 1;
+
+    theme_t *disliked = NULL;
+    size_t n_disliked = 0;
+
+    themes_move_item(&arena, &liked, &n_liked, &disliked, &n_disliked, 5);
+
+    TEST_ASSERT(n_liked == 1);
+    TEST_ASSERT(n_disliked == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_extract_fails_after_retry_exhausted(void)
 {
     arena_t arena;
@@ -339,6 +395,8 @@ int main(void)
     if (test_extract_fails_after_retry_exhausted()) return 1;
     if (test_add_custom_item_to_empty_set()) return 1;
     if (test_add_custom_item_appends_and_keeps_existing()) return 1;
+    if (test_move_item_between_sides()) return 1;
+    if (test_move_item_out_of_range_is_noop()) return 1;
 
     printf("all tests passed\n");
     return 0;
