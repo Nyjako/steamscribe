@@ -203,27 +203,51 @@ static int resolve_appid_from_query(arena_t *arena, const config_t *cfg, const c
     return 0;
 }
 
-/* Prints `items` as a numbered list under `label` and lets the user check
- * any number of them by typing space-separated numbers. */
-static void prompt_checklist(const char *label, theme_t *items, size_t count)
+/* Prints *items as a numbered list under `label` and lets the user check
+ * any number of them by typing space-separated numbers, then lets them
+ * type their own additional items (comma-separated), appended to *items
+ * via themes_add_custom_item and checked by default. */
+static void prompt_checklist(arena_t *arena, const char *label, theme_t **items, size_t *count)
 {
-    if (count == 0) return;
-
     printf("\n%s\n", label);
-    for (size_t i = 0; i < count; i++) printf("  %zu) %s\n", i + 1, items[i].label);
 
-    printf("Type the numbers that apply (space-separated), or leave blank > ");
+    if (*count > 0)
+    {
+        for (size_t i = 0; i < *count; i++) printf("  %zu) %s\n", i + 1, (*items)[i].label);
+
+        printf("Type the numbers that apply (space-separated), or leave blank > ");
+        fflush(stdout);
+
+        char line[256];
+        read_line(line, sizeof(line));
+
+        char *tok = strtok(line, " \t");
+        while (tok)
+        {
+            size_t idx = (size_t)strtoul(tok, NULL, 10);
+            if (idx >= 1 && idx <= *count) (*items)[idx - 1].checked = true;
+            tok = strtok(NULL, " \t");
+        }
+    }
+    else
+    {
+        printf("(no suggestions from the reviews)\n");
+    }
+
+    printf("Add your own (comma-separated), or leave blank > ");
     fflush(stdout);
 
-    char line[256];
-    read_line(line, sizeof(line));
+    char custom_line[512];
+    read_line(custom_line, sizeof(custom_line));
 
-    char *tok = strtok(line, " \t");
+    char *tok = strtok(custom_line, ",");
     while (tok)
     {
-        size_t idx = (size_t)strtoul(tok, NULL, 10);
-        if (idx >= 1 && idx <= count) items[idx - 1].checked = true;
-        tok = strtok(NULL, " \t");
+        while (*tok == ' ') tok++;
+        size_t len = strlen(tok);
+        while (len > 0 && tok[len - 1] == ' ') tok[--len] = '\0';
+        if (len > 0) themes_add_custom_item(arena, items, count, tok);
+        tok = strtok(NULL, ",");
     }
 }
 
@@ -249,8 +273,8 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
         return 1;
     }
 
-    prompt_checklist("What did YOU like?", themes.liked, themes.n_liked);
-    prompt_checklist("What bothered you?", themes.disliked, themes.n_disliked);
+    prompt_checklist(arena, "What did YOU like?", &themes.liked, &themes.n_liked);
+    prompt_checklist(arena, "What bothered you?", &themes.disliked, &themes.n_disliked);
 
     printf("\nAnything else? > ");
     fflush(stdout);
@@ -273,6 +297,14 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     if (length_choice == 'm' || length_choice == 'M') length = REVIEW_LEN_MEDIUM;
     else if (length_choice == 'l' || length_choice == 'L') length = REVIEW_LEN_LONG;
 
+    printf("Words: (n)ormal / (s)imple > ");
+    fflush(stdout);
+    char vocab_line[16];
+    read_line(vocab_line, sizeof(vocab_line));
+
+    char vocab_choice = vocab_line[0] ? vocab_line[0] : cfg->review_default_vocab[0];
+    review_vocab_t vocab = (vocab_choice == 's' || vocab_choice == 'S') ? REVIEW_VOCAB_SIMPLE : REVIEW_VOCAB_NORMAL;
+
     review_tone_t tone = REVIEW_TONE_CASUAL;
     if (strcmp(cfg->review_default_tone, "neutral") == 0) tone = REVIEW_TONE_NEUTRAL;
     else if (strcmp(cfg->review_default_tone, "enthusiastic") == 0) tone = REVIEW_TONE_ENTHUSIASTIC;
@@ -284,6 +316,7 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     req.recommend = recommend;
     req.length = length;
     req.tone = tone;
+    req.vocab = vocab;
 
     const llm_provider_t *provider;
     llm_cfg_t llm_cfg;
