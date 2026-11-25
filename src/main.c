@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "core/review.h"
 #include "core/themes.h"
 #include "llm/llm.h"
 #include "net/http.h"
@@ -39,6 +40,40 @@ static void print_help(void)
     printf("  -h, --help                    show this help and exit\n");
     printf("      --version                show the version and exit\n");
     printf("      --verbose                log HTTP/LLM activity to debug.log\n");
+}
+
+/* Reads one line from stdin into buf, stripping the trailing newline.
+ * buf is always left NUL-terminated, empty on EOF/error. */
+static void read_line(char *buf, size_t size)
+{
+    if (size == 0) return;
+
+    if (!fgets(buf, (int)size, stdin))
+    {
+        buf[0] = '\0';
+        return;
+    }
+
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) buf[--len] = '\0';
+}
+
+static int resolve_llm(const config_t *cfg, const llm_provider_t **out_provider, llm_cfg_t *out_cfg, err_t *err)
+{
+    const llm_provider_t *provider = llm_provider_find(cfg->llm_provider);
+    if (!provider)
+    {
+        err_set(err, -1, "unknown llm provider \"%s\"", cfg->llm_provider);
+        return -1;
+    }
+
+    bool is_anthropic = strcmp(cfg->llm_provider, "anthropic") == 0;
+    out_cfg->model = cfg->llm_model;
+    out_cfg->base_url = cfg->llm_base_url;
+    out_cfg->api_key = is_anthropic ? cfg->anthropic_api_key : cfg->openai_api_key;
+
+    *out_provider = provider;
+    return 0;
 }
 
 static int cmd_search(arena_t *arena, const config_t *cfg, const char *query)
@@ -103,6 +138,42 @@ static int fetch_app_details_cached(arena_t *arena, const config_t *cfg, uint32_
     return rc;
 }
 
+/* Fetches extracted liked/disliked themes for `appid`, serving a fresh cache
+ * entry when there is one and sampling reviews + calling the LLM otherwise. */
+static int fetch_themes_cached(arena_t *arena, const config_t *cfg, uint32_t appid, const game_info_t *game, theme_set_t *out, err_t *err)
+{
+    char *cached = NULL;
+    int hit = cache_get(arena, appid, "themes", cfg->steam_cache_ttl_hours, &cached, err);
+
+    if (hit == 1)
+    {
+        debug_logf("themes: cache hit for appid=%u", appid);
+        return themes_parse_response(arena, cached, out, err);
+    }
+
+    debug_logf("themes: sampling %d reviews for appid=%u", cfg->steam_review_count, appid);
+
+    review_set_t reviews;
+    if (steam_reviews_sample(arena, appid, cfg->steam_language, (size_t)cfg->steam_review_count, &reviews, err) != 0) return -1;
+
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    if (resolve_llm(cfg, &provider, &llm_cfg, err) != 0) return -1;
+
+    debug_logf("themes: calling provider=%s model=%s base_url=%s api_key=%s", provider->name, cfg->llm_model, cfg->llm_base_url[0] ? cfg->llm_base_url : "(default)", debug_log_redact_key(llm_cfg.api_key));
+
+    if (themes_extract(arena, provider, &llm_cfg, game, &reviews, out, err) != 0) return -1;
+
+    char *themes_json = themes_to_json(out);
+    if (themes_json)
+    {
+        cache_put(appid, "themes", themes_json, err);
+        free(themes_json);
+    }
+
+    return 0;
+}
+
 static int cmd_info(arena_t *arena, const config_t *cfg, uint32_t appid)
 {
     err_t err;
@@ -141,65 +212,18 @@ static int cmd_themes(arena_t *arena, const config_t *cfg, uint32_t appid)
     err_t err;
     err_clear(&err);
 
-    char *cached = NULL;
-    int hit = cache_get(arena, appid, "themes", cfg->steam_cache_ttl_hours, &cached, &err);
+    game_info_t game;
+    if (fetch_app_details_cached(arena, cfg, appid, &game, &err) != 0)
+    {
+        fprintf(stderr, "themes failed: %s\n", err.msg);
+        return 1;
+    }
 
     theme_set_t themes;
-
-    if (hit == 1)
+    if (fetch_themes_cached(arena, cfg, appid, &game, &themes, &err) != 0)
     {
-        debug_logf("themes: cache hit for appid=%u", appid);
-        if (themes_parse_response(arena, cached, &themes, &err) != 0)
-        {
-            fprintf(stderr, "themes failed: %s\n", err.msg);
-            return 1;
-        }
-    }
-    else
-    {
-        game_info_t game;
-        if (fetch_app_details_cached(arena, cfg, appid, &game, &err) != 0)
-        {
-            fprintf(stderr, "themes failed: %s\n", err.msg);
-            return 1;
-        }
-
-        debug_logf("themes: sampling %d reviews for appid=%u", cfg->steam_review_count, appid);
-
-        review_set_t reviews;
-        if (steam_reviews_sample(arena, appid, cfg->steam_language, (size_t)cfg->steam_review_count, &reviews, &err) != 0)
-        {
-            fprintf(stderr, "themes failed: could not fetch reviews: %s\n", err.msg);
-            return 1;
-        }
-
-        const llm_provider_t *provider = llm_provider_find(cfg->llm_provider);
-        if (!provider)
-        {
-            fprintf(stderr, "themes failed: unknown llm provider \"%s\"\n", cfg->llm_provider);
-            return 1;
-        }
-
-        bool is_anthropic = strcmp(cfg->llm_provider, "anthropic") == 0;
-        llm_cfg_t llm_cfg;
-        llm_cfg.model = cfg->llm_model;
-        llm_cfg.base_url = cfg->llm_base_url;
-        llm_cfg.api_key = is_anthropic ? cfg->anthropic_api_key : cfg->openai_api_key;
-
-        debug_logf("themes: calling provider=%s model=%s base_url=%s api_key=%s", provider->name, cfg->llm_model, cfg->llm_base_url[0] ? cfg->llm_base_url : "(default)", debug_log_redact_key(llm_cfg.api_key));
-
-        if (themes_extract(arena, provider, &llm_cfg, &game, &reviews, &themes, &err) != 0)
-        {
-            fprintf(stderr, "themes failed: %s\n", err.msg);
-            return 1;
-        }
-
-        char *themes_json = themes_to_json(&themes);
-        if (themes_json)
-        {
-            cache_put(appid, "themes", themes_json, &err);
-            free(themes_json);
-        }
+        fprintf(stderr, "themes failed: %s\n", err.msg);
+        return 1;
     }
 
     char *output = themes_to_json(&themes);
@@ -211,6 +235,159 @@ static int cmd_themes(arena_t *arena, const config_t *cfg, uint32_t appid)
 
     printf("%s\n", output);
     free(output);
+    return 0;
+}
+
+/* Resolves a game name to a single app id: searches, then if there's more
+ * than one match, asks the user to pick one from a numbered list. */
+static int resolve_appid_from_query(arena_t *arena, const config_t *cfg, const char *query, uint32_t *out_appid)
+{
+    steam_search_results_t results;
+    err_t err;
+    err_clear(&err);
+
+    if (steam_search(arena, query, cfg->steam_language, &results, &err) != 0)
+    {
+        fprintf(stderr, "search failed: %s\n", err.msg);
+        return 1;
+    }
+
+    if (results.count == 0)
+    {
+        fprintf(stderr, "No matches for \"%s\"\n", query);
+        return 1;
+    }
+
+    if (results.count == 1)
+    {
+        *out_appid = results.items[0].appid;
+        return 0;
+    }
+
+    printf("Found %zu matches for \"%s\":\n", results.count, query);
+    for (size_t i = 0; i < results.count; i++)
+    {
+        printf("  %zu) %s (%u)\n", i + 1, results.items[i].name, results.items[i].appid);
+    }
+
+    printf("Pick one > ");
+    fflush(stdout);
+
+    char line[32];
+    read_line(line, sizeof(line));
+
+    size_t choice = (size_t)strtoul(line, NULL, 10);
+    if (choice < 1 || choice > results.count)
+    {
+        fprintf(stderr, "invalid selection\n");
+        return 1;
+    }
+
+    *out_appid = results.items[choice - 1].appid;
+    return 0;
+}
+
+/* Prints `items` as a numbered list under `label` and lets the user check
+ * any number of them by typing space-separated numbers. */
+static void prompt_checklist(const char *label, theme_t *items, size_t count)
+{
+    if (count == 0) return;
+
+    printf("\n%s\n", label);
+    for (size_t i = 0; i < count; i++) printf("  %zu) %s\n", i + 1, items[i].label);
+
+    printf("Type the numbers that apply (space-separated), or leave blank > ");
+    fflush(stdout);
+
+    char line[256];
+    read_line(line, sizeof(line));
+
+    char *tok = strtok(line, " \t");
+    while (tok)
+    {
+        size_t idx = (size_t)strtoul(tok, NULL, 10);
+        if (idx >= 1 && idx <= count) items[idx - 1].checked = true;
+        tok = strtok(NULL, " \t");
+    }
+}
+
+static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
+{
+    err_t err;
+    err_clear(&err);
+
+    game_info_t game;
+    if (fetch_app_details_cached(arena, cfg, appid, &game, &err) != 0)
+    {
+        fprintf(stderr, "could not load game info: %s\n", err.msg);
+        return 1;
+    }
+
+    printf("\nFound: %s (%u)\n", game.name, game.appid);
+    printf("Reading %d player reviews...\n", cfg->steam_review_count);
+
+    theme_set_t themes;
+    if (fetch_themes_cached(arena, cfg, appid, &game, &themes, &err) != 0)
+    {
+        fprintf(stderr, "could not read player reviews: %s\n", err.msg);
+        return 1;
+    }
+
+    prompt_checklist("What did YOU like?", themes.liked, themes.n_liked);
+    prompt_checklist("What bothered you?", themes.disliked, themes.n_disliked);
+
+    printf("\nAnything else? > ");
+    fflush(stdout);
+    char notes[512];
+    read_line(notes, sizeof(notes));
+
+    printf("Recommend it? (y/n) > ");
+    fflush(stdout);
+    char recommend_line[16];
+    read_line(recommend_line, sizeof(recommend_line));
+    bool recommend = (recommend_line[0] == 'y' || recommend_line[0] == 'Y');
+
+    printf("Length: (s)hort / (m)edium / (l)ong > ");
+    fflush(stdout);
+    char length_line[16];
+    read_line(length_line, sizeof(length_line));
+
+    char length_choice = length_line[0] ? length_line[0] : cfg->review_default_length[0];
+    review_len_t length = REVIEW_LEN_SHORT;
+    if (length_choice == 'm' || length_choice == 'M') length = REVIEW_LEN_MEDIUM;
+    else if (length_choice == 'l' || length_choice == 'L') length = REVIEW_LEN_LONG;
+
+    review_tone_t tone = REVIEW_TONE_CASUAL;
+    if (strcmp(cfg->review_default_tone, "neutral") == 0) tone = REVIEW_TONE_NEUTRAL;
+    else if (strcmp(cfg->review_default_tone, "enthusiastic") == 0) tone = REVIEW_TONE_ENTHUSIASTIC;
+
+    review_request_t req;
+    req.game = &game;
+    req.themes = &themes;
+    req.notes = notes;
+    req.recommend = recommend;
+    req.length = length;
+    req.tone = tone;
+
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    if (resolve_llm(cfg, &provider, &llm_cfg, &err) != 0)
+    {
+        fprintf(stderr, "could not generate review: %s\n", err.msg);
+        return 1;
+    }
+
+    char *review_text = NULL;
+    if (review_generate(arena, provider, &llm_cfg, &req, &review_text, &err) != 0)
+    {
+        fprintf(stderr, "could not generate review: %s\n", err.msg);
+        return 1;
+    }
+
+    printf("\n-- Your review ------------------------------\n");
+    printf("%s\n", review_text);
+    printf("----------------------------------------------\n");
+
     return 0;
 }
 
@@ -245,8 +422,8 @@ int main(int argc, char **argv)
 
     int rc = 0;
 
-    /* The subcommand is the first non-flag argument, wherever a flag like
-     * --verbose happens to sit relative to it. */
+    /* The subcommand/game-name argument is the first non-flag argument,
+     * wherever a flag like --verbose happens to sit relative to it. */
     int cmd_i = -1;
     for (int i = 1; i < argc; i++)
     {
@@ -258,6 +435,8 @@ int main(int argc, char **argv)
     }
 
     bool have_arg = cmd_i > 0 && cmd_i + 1 < argc;
+    bool is_known_subcommand = cmd_i > 0 && (strcmp(argv[cmd_i], "search") == 0 || strcmp(argv[cmd_i], "info") == 0 || strcmp(argv[cmd_i], "themes") == 0);
+    const char *appid_flag_value = goblin_argv_find_value(argc, argv, "--appid");
 
     if (have_arg && strcmp(argv[cmd_i], "search") == 0)
     {
@@ -289,9 +468,48 @@ int main(int argc, char **argv)
             rc = cmd_themes(&arena, &cfg, appid);
         }
     }
+    else if (is_known_subcommand)
+    {
+        fprintf(stderr, "%s: missing argument\n", argv[cmd_i]);
+        rc = 1;
+    }
+    else if (appid_flag_value)
+    {
+        uint32_t appid = (uint32_t)strtoul(appid_flag_value, NULL, 10);
+        if (appid == 0)
+        {
+            fprintf(stderr, "--appid: \"%s\" is not a valid app id\n", appid_flag_value);
+            rc = 1;
+        }
+        else
+        {
+            rc = cmd_interactive(&arena, &cfg, appid);
+        }
+    }
     else
     {
-        print_help();
+        const char *query = (cmd_i > 0) ? argv[cmd_i] : NULL;
+
+        char query_buf[256];
+        if (!query)
+        {
+            printf("Enter a game name > ");
+            fflush(stdout);
+            read_line(query_buf, sizeof(query_buf));
+
+            if (query_buf[0] == '\0')
+            {
+                print_help();
+                arena_free(&arena);
+                return 0;
+            }
+
+            query = query_buf;
+        }
+
+        uint32_t appid = 0;
+        rc = resolve_appid_from_query(&arena, &cfg, query, &appid);
+        if (rc == 0) rc = cmd_interactive(&arena, &cfg, appid);
     }
 
     arena_free(&arena);
