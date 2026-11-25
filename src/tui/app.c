@@ -1,5 +1,6 @@
 #include "tui/app.h"
 
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 
 #include "core/pipeline.h"
 #include "core/review.h"
+#include "tui/keys.h"
 #include "tui/state.h"
 #include "tui/widgets.h"
 
@@ -42,7 +44,7 @@ static bool is_loading_screen(tui_screen_t screen)
     return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
-static void draw(app_state_t *state)
+static void draw(app_state_t *state, char spinner_ch)
 {
     tb_clear();
 
@@ -62,7 +64,7 @@ static void draw(app_state_t *state)
 
         case TUI_SCREEN_LOADING_GAME:
             widgets_draw_header(1, "Loading...");
-            tb_print(2, 3, TB_DEFAULT, TB_DEFAULT, "Fetching game info and reading player reviews...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Fetching game info and reading player reviews...", spinner_ch);
             break;
 
         case TUI_SCREEN_LIKED:
@@ -101,6 +103,7 @@ static void draw(app_state_t *state)
 
         case TUI_SCREEN_LOADING_REVIEW:
             widgets_draw_header(1, "Writing your review...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c This can take a while on a local model -- Ctrl+C to give up", spinner_ch);
             break;
 
         case TUI_SCREEN_RESULT:
@@ -132,57 +135,155 @@ static void do_search(app_state_t *state, const config_t *cfg)
     tui_apply_search_results(state, results);
 }
 
-static void do_load_game(app_state_t *state, const config_t *cfg)
+/* Loading-game and loading-review both run on a background thread so the
+ * main thread can keep the terminal responsive (animate a spinner, notice
+ * Ctrl+C) during a slow network fetch or a slow local LLM call -- local
+ * CPU inference especially can take well past what a frozen "Loading..."
+ * screen should ever make someone sit through. Only the background thread
+ * allocates from `state->arena` while it's running; the main thread only
+ * reads `state` fields that are already set (never the ones the job is
+ * about to fill in), so this works without the arena itself needing to be
+ * thread-safe. */
+typedef struct bg_result_t
 {
+    pthread_mutex_t mutex;
+    bool done;
+    int rc;
+    err_t err;
+    game_info_t game;
+    theme_set_t themes;
+    char *review_text;
+} bg_result_t;
+
+typedef struct bg_ctx_t
+{
+    app_state_t *state;
+    const config_t *cfg;
+    bg_result_t *result;
+} bg_ctx_t;
+
+static void *bg_load_game_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
     err_t err;
     err_clear(&err);
 
     game_info_t game;
-    if (pipeline_fetch_game(state->arena, cfg, state->appid, &game, &err) != 0)
-    {
-        tui_apply_game_load_failed(state, err.msg);
-        return;
-    }
+    int rc = pipeline_fetch_game(ctx->state->arena, ctx->cfg, ctx->state->appid, &game, &err);
 
     theme_set_t themes;
-    if (pipeline_fetch_themes(state->arena, cfg, state->appid, &game, &themes, &err) != 0)
-    {
-        tui_apply_game_load_failed(state, err.msg);
-        return;
-    }
+    memset(&themes, 0, sizeof(themes));
+    if (rc == 0) rc = pipeline_fetch_themes(ctx->state->arena, ctx->cfg, ctx->state->appid, &game, &themes, &err);
 
-    tui_apply_game_loaded(state, state->appid, game, themes);
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0)
+    {
+        result->game = game;
+        result->themes = themes;
+    }
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
 }
 
-static void do_generate_review(app_state_t *state, const config_t *cfg)
+static void *bg_generate_review_thread(void *argp)
 {
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
     err_t err;
     err_clear(&err);
 
     const llm_provider_t *provider;
     llm_cfg_t llm_cfg;
-    if (pipeline_resolve_llm(cfg, &provider, &llm_cfg, &err) != 0)
-    {
-        tui_apply_review_failed(state, err.msg);
-        return;
-    }
-
-    review_request_t req;
-    req.game = &state->game;
-    req.themes = &state->themes;
-    req.notes = state->notes_input;
-    req.recommend = state->recommend;
-    req.length = state->length;
-    req.tone = state->tone;
+    int rc = pipeline_resolve_llm(ctx->cfg, &provider, &llm_cfg, &err);
 
     char *review_text = NULL;
-    if (review_generate(state->arena, provider, &llm_cfg, &req, &review_text, &err) != 0)
+    if (rc == 0)
     {
-        tui_apply_review_failed(state, err.msg);
-        return;
+        review_request_t req;
+        req.game = &ctx->state->game;
+        req.themes = &ctx->state->themes;
+        req.notes = ctx->state->notes_input;
+        req.recommend = ctx->state->recommend;
+        req.length = ctx->state->length;
+        req.tone = ctx->state->tone;
+
+        rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
     }
 
-    tui_apply_review_generated(state, review_text);
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    result->review_text = review_text;
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
+
+static bool bg_result_is_done(bg_result_t *result)
+{
+    pthread_mutex_lock(&result->mutex);
+    bool done = result->done;
+    pthread_mutex_unlock(&result->mutex);
+    return done;
+}
+
+/* Runs `thread_fn` in the background while animating a spinner over the
+ * already-drawn Loading screen, then folds the result into `state` once
+ * it's done. A Ctrl+C while waiting exits immediately (the OS cleans up
+ * the still-running network call; there's no cancellation plumbing for it). */
+static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*thread_fn)(void *))
+{
+    static const char SPINNER_FRAMES[] = "|/-\\";
+
+    bg_result_t result;
+    memset(&result, 0, sizeof(result));
+    pthread_mutex_init(&result.mutex, NULL);
+
+    bg_ctx_t *ctx = (bg_ctx_t *)malloc(sizeof(bg_ctx_t));
+    ctx->state = state;
+    ctx->cfg = cfg;
+    ctx->result = &result;
+
+    pthread_t thread;
+    pthread_create(&thread, NULL, thread_fn, ctx);
+
+    size_t spinner_i = 0;
+    while (!bg_result_is_done(&result))
+    {
+        draw(state, SPINNER_FRAMES[spinner_i % (sizeof(SPINNER_FRAMES) - 1)]);
+        spinner_i++;
+
+        struct tb_event ev;
+        if (tb_peek_event(&ev, 120) == TB_OK && ev.type == TB_EVENT_KEY && ev.key == TUI_KEY_CTRL_C)
+        {
+            tb_shutdown();
+            _exit(130);
+        }
+    }
+
+    pthread_join(thread, NULL);
+    pthread_mutex_destroy(&result.mutex);
+
+    if (state->screen == TUI_SCREEN_LOADING_GAME)
+    {
+        if (result.rc == 0) tui_apply_game_loaded(state, state->appid, result.game, result.themes);
+        else tui_apply_game_load_failed(state, result.err.msg);
+    }
+    else
+    {
+        if (result.rc == 0) tui_apply_review_generated(state, result.review_text);
+        else tui_apply_review_failed(state, result.err.msg);
+    }
 }
 
 int tui_run(arena_t *arena, const config_t *cfg, const tui_options_t *options, err_t *err)
@@ -202,15 +303,12 @@ int tui_run(arena_t *arena, const config_t *cfg, const tui_options_t *options, e
     {
         if (is_loading_screen(state.screen))
         {
-            draw(&state);
-
-            if (state.screen == TUI_SCREEN_LOADING_GAME) do_load_game(&state, cfg);
-            else do_generate_review(&state, cfg);
-
+            tui_screen_t loading_screen = state.screen;
+            run_loading_screen(&state, cfg, loading_screen == TUI_SCREEN_LOADING_GAME ? bg_load_game_thread : bg_generate_review_thread);
             continue;
         }
 
-        draw(&state);
+        draw(&state, ' ');
 
         struct tb_event ev;
         if (tb_poll_event(&ev) != TB_OK) continue;
