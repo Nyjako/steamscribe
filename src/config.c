@@ -27,7 +27,8 @@ static const char *DEFAULT_CONFIG_INI =
     "\n"
     "[review]\n"
     "default_length = short        ; short | medium | long\n"
-    "default_tone   = casual       ; casual | neutral | enthusiastic\n";
+    "default_tone   = casual       ; casual | neutral | enthusiastic\n"
+    "default_vocab  = normal       ; normal | simple (plain, everyday words)\n";
 
 typedef struct raw_config_t
 {
@@ -40,6 +41,7 @@ typedef struct raw_config_t
     char *steam_cache_ttl_hours;
     char *review_default_length;
     char *review_default_tone;
+    char *review_default_vocab;
 } raw_config_t;
 
 static int steamscribe_ini_handler(void *user, const char *section, const char *name, const char *value)
@@ -57,6 +59,7 @@ static int steamscribe_ini_handler(void *user, const char *section, const char *
     else if (MATCH("steam", "cache_ttl_hours")) cfg->steam_cache_ttl_hours = strdup(value);
     else if (MATCH("review", "default_length")) cfg->review_default_length = strdup(value);
     else if (MATCH("review", "default_tone")) cfg->review_default_tone = strdup(value);
+    else if (MATCH("review", "default_vocab")) cfg->review_default_vocab = strdup(value);
 
 #undef MATCH
 
@@ -111,6 +114,7 @@ static void free_raw_config(raw_config_t *raw)
     free(raw->steam_cache_ttl_hours);
     free(raw->review_default_length);
     free(raw->review_default_tone);
+    free(raw->review_default_vocab);
 }
 
 int config_load(arena_t *arena, config_t *out, err_t *err)
@@ -134,6 +138,7 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
     out->steam_cache_ttl_hours = raw.steam_cache_ttl_hours ? atoi(raw.steam_cache_ttl_hours) : 24;
     out->review_default_length = arena_strdup(arena, raw.review_default_length ? raw.review_default_length : "short");
     out->review_default_tone = arena_strdup(arena, raw.review_default_tone ? raw.review_default_tone : "casual");
+    out->review_default_vocab = arena_strdup(arena, raw.review_default_vocab ? raw.review_default_vocab : "normal");
 
     free_raw_config(&raw);
 
@@ -180,6 +185,7 @@ int config_save(const config_t *cfg, err_t *err)
     fprintf(fp, "\n[review]\n");
     fprintf(fp, "default_length = %s        ; short | medium | long\n", cfg->review_default_length);
     fprintf(fp, "default_tone   = %s       ; casual | neutral | enthusiastic\n", cfg->review_default_tone);
+    fprintf(fp, "default_vocab  = %s       ; normal | simple (plain, everyday words)\n", cfg->review_default_vocab);
 
     fclose(fp);
     return 0;

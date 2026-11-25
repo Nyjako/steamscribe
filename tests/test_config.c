@@ -27,6 +27,7 @@ static int test_defaults_and_env_key(void)
     TEST_ASSERT(cfg.steam_review_count == 200);
     TEST_ASSERT(cfg.steam_cache_ttl_hours == 24);
     TEST_ASSERT(strcmp(cfg.review_default_length, "short") == 0);
+    TEST_ASSERT(strcmp(cfg.review_default_vocab, "normal") == 0);
     TEST_ASSERT(cfg.llm_num_ctx == 8192);
     TEST_ASSERT(strcmp(cfg.anthropic_api_key, "test-key-123") == 0);
     TEST_ASSERT(strcmp(cfg.openai_api_key, "") == 0);
@@ -95,6 +96,7 @@ static int test_save_then_reload_round_trips(void)
     cfg.llm_model = arena_strdup(&arena, "qwen2.5:14b");
     cfg.llm_base_url = arena_strdup(&arena, "http://localhost:11434");
     cfg.llm_num_ctx = 16384;
+    cfg.review_default_vocab = arena_strdup(&arena, "simple");
 
     TEST_ASSERT(config_save(&cfg, &err) == 0);
 
@@ -108,6 +110,7 @@ static int test_save_then_reload_round_trips(void)
     TEST_ASSERT(strcmp(reloaded.llm_model, "qwen2.5:14b") == 0);
     TEST_ASSERT(strcmp(reloaded.llm_base_url, "http://localhost:11434") == 0);
     TEST_ASSERT(reloaded.llm_num_ctx == 16384);
+    TEST_ASSERT(strcmp(reloaded.review_default_vocab, "simple") == 0);
     /* unrelated sections survive the round trip unchanged */
     TEST_ASSERT(strcmp(reloaded.steam_language, "english") == 0);
     TEST_ASSERT(reloaded.steam_review_count == 200);

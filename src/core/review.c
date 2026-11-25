@@ -24,6 +24,18 @@ static const char *tone_instruction(review_tone_t tone)
     }
 }
 
+/* Empty for the normal case so the golden prompt text doesn't grow a line
+ * nobody asked for -- only REVIEW_VOCAB_SIMPLE adds an instruction. */
+static const char *vocab_instruction(review_vocab_t vocab)
+{
+    switch (vocab)
+    {
+        case REVIEW_VOCAB_SIMPLE: return "Use simple, everyday words -- avoid fancy or technical vocabulary.";
+        case REVIEW_VOCAB_NORMAL:
+        default: return "";
+    }
+}
+
 void review_build_prompt(arena_t *arena, const review_request_t *req, char **out_system, char **out_user)
 {
     strbuf_t system;
@@ -36,6 +48,9 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     strbuf_append_cstr(&system, "- End with a single-line verdict stating whether you recommend the game.\n");
     strbuf_append_fmt(&system, "- Length: %s.\n", length_instruction(req->length));
     strbuf_append_fmt(&system, "- %s\n", tone_instruction(req->tone));
+
+    const char *vocab_line = vocab_instruction(req->vocab);
+    if (vocab_line[0]) strbuf_append_fmt(&system, "- %s\n", vocab_line);
 
     strbuf_t user;
     strbuf_init(&user);

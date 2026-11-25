@@ -23,6 +23,12 @@ typedef enum
     REVIEW_TONE_ENTHUSIASTIC,
 } review_tone_t;
 
+typedef enum
+{
+    REVIEW_VOCAB_NORMAL,
+    REVIEW_VOCAB_SIMPLE, /* plain, everyday words -- no fancy vocabulary */
+} review_vocab_t;
+
 typedef struct review_request_t
 {
     const game_info_t *game;
@@ -31,6 +37,7 @@ typedef struct review_request_t
     bool recommend;
     review_len_t length;
     review_tone_t tone;
+    review_vocab_t vocab;
 } review_request_t;
 
 /* Builds the review-generation system/user prompt for `req`, using only the
