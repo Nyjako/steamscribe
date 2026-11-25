@@ -1,6 +1,7 @@
 #include "core/themes.h"
 
 #include <cJSON.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "util/strbuf.h"
@@ -262,4 +263,20 @@ char *themes_to_json(const theme_set_t *themes)
     char *text = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     return text;
+}
+
+void themes_add_custom_item(arena_t *arena, theme_t **items, size_t *count, const char *label)
+{
+    theme_t *grown = (theme_t *)arena_alloc(arena, (*count + 1) * sizeof(theme_t));
+    if (*count > 0) memcpy(grown, *items, *count * sizeof(theme_t));
+
+    char id[32];
+    snprintf(id, sizeof(id), "custom_%zu", *count + 1);
+
+    grown[*count].id = arena_strdup(arena, id);
+    grown[*count].label = arena_strdup(arena, label);
+    grown[*count].checked = true;
+
+    *items = grown;
+    (*count)++;
 }
