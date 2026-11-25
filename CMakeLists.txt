@@ -51,3 +51,6 @@ target_include_directories(steamscribe PRIVATE src ${termbox2_SOURCE_DIR})
 target_link_libraries(steamscribe PRIVATE CURL::libcurl cjson inih Threads::Threads goblin)
 target_compile_definitions(steamscribe PRIVATE STEAMSCRIBE_VERSION="${PROJECT_VERSION}")
 target_compile_options(steamscribe PRIVATE -Wall -Wextra -Wpedantic)
+
+enable_testing()
+add_subdirectory(tests)
