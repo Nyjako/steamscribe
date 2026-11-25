@@ -42,6 +42,7 @@ $ steamscribe valheim
 - Generates a review in your chosen length and tone, using **only the points you confirmed**
 - Copy to clipboard, edit in `$EDITOR`, regenerate, or save locally
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
+- Press **F2** in the TUI to change provider/model/base URL/context size without leaving the app or hand-editing `config.ini`
 - Caches Steam data so it doesn't hammer Steam's servers
 
 ## Requirements
