@@ -17,6 +17,7 @@
 #define TUI_SETTINGS_MODEL_CAP 128
 #define TUI_SETTINGS_URL_CAP 256
 #define TUI_SETTINGS_NUM_CTX_CAP 16
+#define TUI_CUSTOM_ITEM_CAP 128
 
 typedef enum
 {
@@ -37,6 +38,7 @@ typedef enum
     TUI_NOTES_STEP_TEXT,
     TUI_NOTES_STEP_RECOMMEND,
     TUI_NOTES_STEP_LENGTH,
+    TUI_NOTES_STEP_VOCAB,
 } tui_notes_step_t;
 
 typedef enum
@@ -79,12 +81,19 @@ typedef struct app_state_t
     size_t liked_cursor;
     size_t disliked_cursor;
 
+    /* Liked/Disliked screens: typing a custom item to add to the checklist,
+     * beyond what themes_extract surfaced. */
+    bool adding_item;
+    char custom_item_input[TUI_CUSTOM_ITEM_CAP];
+    size_t custom_item_input_len;
+
     char notes_input[TUI_NOTES_INPUT_CAP];
     size_t notes_input_len;
     tui_notes_step_t notes_step;
     bool recommend;
     review_len_t length;
     review_tone_t tone;
+    review_vocab_t vocab;
 
     char *review_text;
 
