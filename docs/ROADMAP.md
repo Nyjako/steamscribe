@@ -35,14 +35,14 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 ## M2 – LLM client & theme extraction
 **Goal:** turn 200 reviews into a clean like/dislike list.
 
-- [ ] `config.c`: load `config.ini`, create default on first run, read API key from env
-- [ ] `llm/` provider registry with **anthropic** and **openai-compatible** backends
-- [ ] `fake` provider for tests
-- [ ] Theme extraction prompt plus robust JSON parsing (fence stripping, one retry)
-- [ ] `steamscribe themes <appid>` prints themes JSON and caches it
-- [ ] `--verbose` debug log with keys redacted
+- [x] `config.c`: load `config.ini`, create default on first run, read API key from env
+- [x] `llm/` provider registry with **anthropic** and **openai-compatible** backends (the openai-compatible backend is also the path to local models: point `base_url` at Ollama/LM Studio and leave the API key unset)
+- [x] `fake` provider for tests
+- [x] Theme extraction prompt plus robust JSON parsing (fence stripping, one retry)
+- [x] `steamscribe themes <appid>` prints themes JSON and caches it
+- [x] `--verbose` debug log with keys redacted (scoped down from "HTTP and LLM traffic" to lifecycle events -- cache hits/misses, URLs fetched, provider/model used; full raw request/response dumping is left for later if it turns out to be needed)
 
-**Done when:** themes for 3–4 different games (e.g. Valheim, a puzzle game, a shooter) look sensible, and it works with a local Ollama model.
+**Done when:** themes for 3–4 different games (e.g. Valheim, a puzzle game, a shooter) look sensible, and it works with a local Ollama model. The `openai` provider is implemented generically for this (no API key required when `base_url` is set), but hasn't been verified against a real local Ollama/LM Studio server in this environment -- worth a manual check before relying on it.
 
 ---
 
