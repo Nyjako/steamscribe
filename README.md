@@ -33,6 +33,8 @@ $ steamscribe valheim
 
 🚧 Early development. The plain-terminal flow shown above (search → read reviews → numbered-list checklist → generated review) works end-to-end as of v0.1 -- the TUI, clipboard/edit/regenerate/save actions, and the checklist layout pictured above are still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
+⚠️ **Known issue:** Steam's `/appreviews/` endpoint currently redirects every plain HTTP client tried so far (confirmed from more than one network), so reading player reviews doesn't work right now -- searching and fetching game info (which use different endpoints) are unaffected. See the risk table in [DESIGN.md](DESIGN.md) for details; there's no known fix yet.
+
 ## Features (planned)
 
 - Search Steam games by name
