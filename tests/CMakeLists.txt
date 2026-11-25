@@ -49,4 +49,17 @@ target_compile_options(test_themes PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_themes COMMAND test_themes)
 
+add_executable(test_review
+    test_review.c
+    ${CMAKE_SOURCE_DIR}/src/core/review.c
+    ${CMAKE_SOURCE_DIR}/src/llm/fake.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c
+    ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
+    ${CMAKE_SOURCE_DIR}/src/util/error.c)
+target_include_directories(test_review PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_review PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_review COMMAND test_review)
+
+
 

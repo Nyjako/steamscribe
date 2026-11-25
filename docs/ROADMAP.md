@@ -49,13 +49,13 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 ## M3 – End-to-end MVP (no TUI)
 **Goal:** first real review generated. 🎉
 
-- [ ] Review generation prompt (length, tone, recommend, notes, checked themes only)
-- [ ] Simple line-based interactive mode on stdin/stdout:
+- [x] Review generation prompt (length, tone, recommend, notes, checked themes only)
+- [x] Simple line-based interactive mode on stdin/stdout:
       numbered lists ("type numbers you liked: 1 3 4"), notes, y/n, length
-- [ ] Print the final review
-- [ ] Golden-string tests for prompt building
+- [x] Print the final review
+- [x] Golden-string tests for prompt building
 
-**Done when:** you can go from `steamscribe valheim` to a pasteable review in a plain terminal. **This is a usable v0.1.**
+**Done when:** you can go from `steamscribe valheim` to a pasteable review in a plain terminal. **This is a usable v0.1.** Verified against the real Steam search/appdetails APIs and against cached data + the `fake` LLM provider end-to-end (through to the final LLM call); the live reviews endpoint and a real LLM response weren't reachable from this environment to verify the very last step.
 
 ---
 
