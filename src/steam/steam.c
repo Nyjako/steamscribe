@@ -21,6 +21,21 @@
 #define REVIEW_MIN_CHARS 40
 #define REVIEW_MAX_CHARS 1200
 
+/* IUserReviewsService#EUserReviewsAppReviewsFilter. Recent (not the default
+ * Helpful) is used for paginated sampling: Helpful widens its day_range
+ * until it finds results and never runs dry, so a cursor loop relying on an
+ * eventual empty page would never terminate -- the API docs call this out
+ * explicitly under "Migrating from /appreviews". */
+#define REVIEWS_FILTER_RECENT 1
+
+/* IUserReviewsService#EUserReviewsReviewType */
+#define REVIEWS_TYPE_ALL 0
+#define REVIEWS_TYPE_POSITIVE 1
+#define REVIEWS_TYPE_NEGATIVE 2
+
+/* IUserReviewsService#EUserReviewsPurchaseType */
+#define REVIEWS_PURCHASE_ALL 1
+
 static char *join_descriptions(arena_t *arena, cJSON *array)
 {
     strbuf_t sb;
@@ -149,15 +164,18 @@ int steam_parse_reviews_page(arena_t *arena, const char *json_text, steam_review
     cJSON *root = cJSON_Parse(json_text);
     if (!root)
     {
-        err_set(err, -1, "invalid appreviews response JSON (got: %.80s)", json_text);
+        err_set(err, -1, "invalid reviews response JSON (got: %.80s)", json_text);
         return -1;
     }
 
-    cJSON *success = cJSON_GetObjectItemCaseSensitive(root, "success");
-    if (!cJSON_IsNumber(success) || success->valueint != 1)
+    /* GetAppReviews has no success field (check the HTTP status for that,
+     * which http_get already does) -- everything is nested under
+     * "response", which is `{}` for e.g. an unknown appid. */
+    cJSON *response = cJSON_GetObjectItemCaseSensitive(root, "response");
+    if (!cJSON_IsObject(response))
     {
         cJSON_Delete(root);
-        err_set(err, -1, "appreviews response reports failure");
+        err_set(err, -1, "reviews response has no 'response' object (got: %.80s)", json_text);
         return -1;
     }
 
@@ -166,23 +184,30 @@ int steam_parse_reviews_page(arena_t *arena, const char *json_text, steam_review
     out->total_positive = 0;
     out->total_negative = 0;
 
-    cJSON *summary = cJSON_GetObjectItemCaseSensitive(root, "query_summary");
+    cJSON *summary = cJSON_GetObjectItemCaseSensitive(response, "query_summary");
     if (cJSON_IsObject(summary))
     {
+        /* query_summary itself is present on every page, but its score
+         * fields (review_score_desc & co) only appear on the first page of
+         * a review_type="all" query -- review_score_desc's presence is what
+         * distinguishes that from a later page's bare {"num_reviews": N}. */
         cJSON *score_desc = cJSON_GetObjectItemCaseSensitive(summary, "review_score_desc");
-        cJSON *total_positive = cJSON_GetObjectItemCaseSensitive(summary, "total_positive");
-        cJSON *total_negative = cJSON_GetObjectItemCaseSensitive(summary, "total_negative");
+        if (cJSON_IsString(score_desc))
+        {
+            cJSON *total_positive = cJSON_GetObjectItemCaseSensitive(summary, "total_positive");
+            cJSON *total_negative = cJSON_GetObjectItemCaseSensitive(summary, "total_negative");
 
-        out->has_summary = true;
-        out->score_desc = cJSON_IsString(score_desc) ? arena_strdup(arena, score_desc->valuestring) : arena_strdup(arena, "");
-        out->total_positive = cJSON_IsNumber(total_positive) ? total_positive->valueint : 0;
-        out->total_negative = cJSON_IsNumber(total_negative) ? total_negative->valueint : 0;
+            out->has_summary = true;
+            out->score_desc = arena_strdup(arena, score_desc->valuestring);
+            out->total_positive = cJSON_IsNumber(total_positive) ? total_positive->valueint : 0;
+            out->total_negative = cJSON_IsNumber(total_negative) ? total_negative->valueint : 0;
+        }
     }
 
-    cJSON *cursor = cJSON_GetObjectItemCaseSensitive(root, "cursor");
+    cJSON *cursor = cJSON_GetObjectItemCaseSensitive(response, "cursor");
     out->cursor = cJSON_IsString(cursor) ? arena_strdup(arena, cursor->valuestring) : arena_strdup(arena, "");
 
-    cJSON *reviews = cJSON_GetObjectItemCaseSensitive(root, "reviews");
+    cJSON *reviews = cJSON_GetObjectItemCaseSensitive(response, "reviews");
     size_t count = cJSON_IsArray(reviews) ? (size_t)cJSON_GetArraySize(reviews) : 0;
     steam_review_t *items = count ? (steam_review_t *)arena_alloc(arena, count * sizeof(steam_review_t)) : NULL;
 
@@ -248,18 +273,53 @@ int steam_app_details(arena_t *arena, uint32_t appid, const char *language, game
     return rc;
 }
 
+/* Builds the GetAppReviews request URL. This is a Service-interface method,
+ * so every parameter besides the optional `key` travels as a single
+ * `input_json` query value rather than as flat query params. */
+static char *build_get_app_reviews_url(uint32_t appid, const char *language, int filter, int review_type, int num_per_page, const char *cursor)
+{
+    cJSON *input = cJSON_CreateObject();
+    cJSON_AddNumberToObject(input, "appid", appid);
+    cJSON_AddNumberToObject(input, "filter", filter);
+    cJSON_AddNumberToObject(input, "review_type", review_type);
+    cJSON_AddNumberToObject(input, "purchase_type", REVIEWS_PURCHASE_ALL);
+    cJSON_AddNumberToObject(input, "num_per_page", num_per_page);
+    cJSON_AddStringToObject(input, "cursor", cursor);
+
+    cJSON *languages = cJSON_CreateArray();
+    cJSON_AddItemToArray(languages, cJSON_CreateString(language));
+    cJSON_AddItemToObject(input, "languages", languages);
+
+    char *input_text = cJSON_PrintUnformatted(input);
+    cJSON_Delete(input);
+    if (!input_text) return NULL;
+
+    char *encoded = goblin_url_encode(input_text);
+    free(input_text);
+    if (!encoded) return NULL;
+
+    size_t url_len = strlen(encoded) + 128;
+    char *url = (char *)malloc(url_len);
+    if (url) snprintf(url, url_len, "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/?input_json=%s", encoded);
+    free(encoded);
+    return url;
+}
+
 int steam_reviews_summary(arena_t *arena, uint32_t appid, const char *language, review_set_t *out, err_t *err)
 {
-    char url[512];
-    snprintf(url, sizeof(url),
-             "https://store.steampowered.com/appreviews/%u?json=1&filter=all&language=%s&review_type=all&purchase_type=all&num_per_page=1&cursor=*",
-             appid, language);
+    char *url = build_get_app_reviews_url(appid, language, REVIEWS_FILTER_RECENT, REVIEWS_TYPE_ALL, 1, "*");
+    if (!url)
+    {
+        err_set(err, -1, "out of memory building reviews request");
+        return -1;
+    }
 
     http_cfg_t cfg = http_cfg_default();
     strbuf_t body;
     strbuf_init(&body);
 
     int rc = http_get(&cfg, url, &body, err);
+    free(url);
     if (rc != 0)
     {
         strbuf_free(&body);
@@ -279,31 +339,26 @@ int steam_reviews_summary(arena_t *arena, uint32_t appid, const char *language, 
     return 0;
 }
 
-static int fetch_reviews_type(arena_t *arena, uint32_t appid, const char *language, const char *review_type, size_t target, steam_review_t *dest, size_t *kept, review_set_t *summary_out, bool *have_summary, goblin_rate_limiter *limiter, err_t *err)
+static int fetch_reviews_type(arena_t *arena, uint32_t appid, const char *language, int review_type, size_t target, steam_review_t *dest, size_t *kept, review_set_t *summary_out, bool *have_summary, goblin_rate_limiter *limiter, err_t *err)
 {
     http_cfg_t cfg = http_cfg_default();
     char *cursor = arena_strdup(arena, "*");
 
     for (;;)
     {
-        char *encoded_cursor = goblin_url_encode(cursor);
-        if (!encoded_cursor)
+        char *url = build_get_app_reviews_url(appid, language, REVIEWS_FILTER_RECENT, review_type, 100, cursor);
+        if (!url)
         {
-            err_set(err, -1, "out of memory encoding review cursor");
+            err_set(err, -1, "out of memory building reviews request");
             return -1;
         }
-
-        char url[768];
-        snprintf(url, sizeof(url),
-                 "https://store.steampowered.com/appreviews/%u?json=1&filter=all&language=%s&review_type=%s&purchase_type=all&num_per_page=100&cursor=%s",
-                 appid, language, review_type, encoded_cursor);
-        free(encoded_cursor);
 
         goblin_rate_limiter_wait(limiter);
 
         strbuf_t body;
         strbuf_init(&body);
         int rc = http_get(&cfg, url, &body, err);
+        free(url);
         if (rc != 0)
         {
             strbuf_free(&body);
@@ -363,13 +418,13 @@ int steam_reviews_sample(arena_t *arena, uint32_t appid, const char *language, s
     goblin_rate_limiter limiter;
     goblin_rate_limiter_init(&limiter, 0.3);
 
-    int rc = fetch_reviews_type(arena, appid, language, "positive", target_per_type, items, &kept, &summary, &have_summary, &limiter, err);
+    int rc = fetch_reviews_type(arena, appid, language, REVIEWS_TYPE_POSITIVE, target_per_type, items, &kept, &summary, &have_summary, &limiter, err);
     if (rc != 0) return rc;
 
     size_t negative_target = kept + (count - target_per_type);
     if (negative_target > count) negative_target = count;
 
-    rc = fetch_reviews_type(arena, appid, language, "negative", negative_target, items, &kept, &summary, &have_summary, &limiter, err);
+    rc = fetch_reviews_type(arena, appid, language, REVIEWS_TYPE_NEGATIVE, negative_target, items, &kept, &summary, &have_summary, &limiter, err);
     if (rc != 0) return rc;
 
     out->items = items;

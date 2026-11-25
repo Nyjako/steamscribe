@@ -104,7 +104,7 @@ static int test_parse_reviews_page_positive(void)
     arena_t arena;
     arena_init(&arena, 0);
 
-    char *json = read_fixture("appreviews_892970_positive_page1.json");
+    char *json = read_fixture("getappreviews_892970_positive_page1.json");
     TEST_ASSERT(json != NULL);
 
     steam_reviews_page_t page;
@@ -136,7 +136,7 @@ static int test_parse_reviews_page_negative(void)
     arena_t arena;
     arena_init(&arena, 0);
 
-    char *json = read_fixture("appreviews_892970_negative_page1.json");
+    char *json = read_fixture("getappreviews_892970_negative_page1.json");
     TEST_ASSERT(json != NULL);
 
     steam_reviews_page_t page;
@@ -152,6 +152,52 @@ static int test_parse_reviews_page_negative(void)
     return 0;
 }
 
+static int test_parse_reviews_page_second_page_has_no_summary(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *json = read_fixture("getappreviews_892970_page2_no_score.json");
+    TEST_ASSERT(json != NULL);
+
+    steam_reviews_page_t page;
+    err_t err;
+    int rc = steam_parse_reviews_page(&arena, json, &page, &err);
+    free(json);
+
+    /* query_summary is present on every page, but with only num_reviews --
+     * no review_score_desc means has_summary must stay false. */
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(!page.has_summary);
+    TEST_ASSERT(page.count == 1);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_parse_reviews_page_empty_response(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    /* GetAppReviews returns HTTP 200 with an empty "response" object (no
+     * "success" field at all) for e.g. an unknown appid. */
+    char *json = read_fixture("getappreviews_empty.json");
+    TEST_ASSERT(json != NULL);
+
+    steam_reviews_page_t page;
+    err_t err;
+    int rc = steam_parse_reviews_page(&arena, json, &page, &err);
+    free(json);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(!page.has_summary);
+    TEST_ASSERT(page.count == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 int main(void)
 {
     if (test_parse_search()) return 1;
@@ -159,6 +205,8 @@ int main(void)
     if (test_parse_app_details_not_found()) return 1;
     if (test_parse_reviews_page_positive()) return 1;
     if (test_parse_reviews_page_negative()) return 1;
+    if (test_parse_reviews_page_second_page_has_no_summary()) return 1;
+    if (test_parse_reviews_page_empty_response()) return 1;
 
     printf("all tests passed\n");
     return 0;
