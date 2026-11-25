@@ -13,6 +13,7 @@
 #include "net/http.h"
 #include "steam/cache.h"
 #include "steam/steam.h"
+#include "tui/app.h"
 #include "util/arena.h"
 #include "util/debug_log.h"
 #include "util/error.h"
@@ -31,9 +32,9 @@ static void print_help(void)
     printf("steamscribe %s\n", STEAMSCRIBE_VERSION);
     printf("Turn a game's Steam page and player reviews into a review draft you write yourself.\n\n");
     printf("Usage:\n");
-    printf("  steamscribe                  interactive: asks for a game name\n");
-    printf("  steamscribe <name>            start with a search for <name>\n");
-    printf("  steamscribe --appid <id>       skip search, use an app id directly\n\n");
+    printf("  steamscribe                  interactive TUI: asks for a game name\n");
+    printf("  steamscribe <name>            TUI, starting with a search for <name>\n");
+    printf("  steamscribe --appid <id>       TUI, skipping search, using an app id directly\n\n");
     printf("  steamscribe search <name>     print search matches\n");
     printf("  steamscribe info <appid>      print game info\n");
     printf("  steamscribe themes <appid>    print extracted likes/dislikes as JSON\n\n");
@@ -41,6 +42,7 @@ static void print_help(void)
     printf("  -h, --help                    show this help and exit\n");
     printf("      --version                show the version and exit\n");
     printf("      --verbose                log HTTP/LLM activity to debug.log\n");
+    printf("      --plain                  use the old line-based prompts instead of the TUI\n");
 }
 
 /* Reads one line from stdin into buf, stripping the trailing newline.
@@ -351,6 +353,7 @@ int main(int argc, char **argv)
     bool have_arg = cmd_i > 0 && cmd_i + 1 < argc;
     bool is_known_subcommand = cmd_i > 0 && (strcmp(argv[cmd_i], "search") == 0 || strcmp(argv[cmd_i], "info") == 0 || strcmp(argv[cmd_i], "themes") == 0);
     const char *appid_flag_value = goblin_argv_find_value(argc, argv, "--appid");
+    bool plain = goblin_argv_has_flag(argc, argv, "--plain");
 
     if (have_arg && strcmp(argv[cmd_i], "search") == 0)
     {
@@ -395,12 +398,26 @@ int main(int argc, char **argv)
             fprintf(stderr, "--appid: \"%s\" is not a valid app id\n", appid_flag_value);
             rc = 1;
         }
-        else
+        else if (plain)
         {
             rc = cmd_interactive(&arena, &cfg, appid);
         }
+        else
+        {
+            tui_options_t options;
+            options.initial_query = NULL;
+            options.initial_appid = appid;
+
+            err_t tui_err;
+            err_clear(&tui_err);
+            if (tui_run(&arena, &cfg, &options, &tui_err) != 0)
+            {
+                fprintf(stderr, "could not start the TUI: %s\n", tui_err.msg);
+                rc = 1;
+            }
+        }
     }
-    else
+    else if (plain)
     {
         const char *query = (cmd_i > 0) ? argv[cmd_i] : NULL;
 
@@ -424,6 +441,20 @@ int main(int argc, char **argv)
         uint32_t appid = 0;
         rc = resolve_appid_from_query(&arena, &cfg, query, &appid);
         if (rc == 0) rc = cmd_interactive(&arena, &cfg, appid);
+    }
+    else
+    {
+        tui_options_t options;
+        options.initial_query = (cmd_i > 0) ? argv[cmd_i] : NULL;
+        options.initial_appid = 0;
+
+        err_t tui_err;
+        err_clear(&tui_err);
+        if (tui_run(&arena, &cfg, &options, &tui_err) != 0)
+        {
+            fprintf(stderr, "could not start the TUI: %s\n", tui_err.msg);
+            rc = 1;
+        }
     }
 
     arena_free(&arena);
