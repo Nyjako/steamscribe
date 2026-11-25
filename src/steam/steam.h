@@ -47,8 +47,9 @@ typedef struct review_set_t
     int total_negative;
 } review_set_t;
 
-/* One page of the appreviews endpoint, as returned for a single review_type.
- * query_summary is only present on Steam's first page of a cursor sequence. */
+/* One page of IUserReviewsService/GetAppReviews, as returned for a single
+ * review_type. The score fields (score_desc/total_positive/total_negative)
+ * are only present on the first page when review_type is "all". */
 typedef struct steam_reviews_page_t
 {
     char *cursor;
