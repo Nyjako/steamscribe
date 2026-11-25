@@ -117,16 +117,35 @@ surfaced, typed in and checked by default (`themes_add_custom_item`, in both the
 never written back into the themes cache, so a fresh load for the same game won't carry
 someone else's custom entry.
 
+Either side's items can also be moved to the other side (`themes_move_item`), id/label/
+checked state carried over unchanged -- for when the AI filed something under the wrong
+one of this particular player's own opinions (e.g. a commonly-complained-about mechanic
+that this player actually enjoys). In the TUI that's `m` on the Liked/Disliked screens;
+`--plain` asks "Any of those actually belong under ... instead?" right after the
+add-your-own prompt, against the originally-printed numbering (adding custom items first
+doesn't shift it).
+
 ### 4.2 Review generation
 Input: game name, **only the checked labels**, the user's free-text notes, recommend yes/no, length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
-- Use only the provided points. Don't invent experiences, numbers, or features.
+- Use only the provided points below. Never invent or add any extra like, dislike,
+  experience, number, or feature -- not even ones that sound typical for this kind of
+  game (worded this strongly because a local model otherwise did exactly that: added an
+  unchecked, genre-typical complaint on its own).
 - Short = 2–4 sentences. Medium = 1–2 paragraphs. Long = 3–4 paragraphs.
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
 - Vocabulary: "normal" adds no extra line; "simple" adds one telling the model to use
   plain, everyday words and avoid fancy or technical vocabulary. Picked per review, right
   after length, in both the TUI and `--plain`; defaults from `[review] default_vocab`.
+
+From the Result screen, the TUI also offers to go back through Liked/Disliked/Notes/
+Options with everything from last time still in place (`o`) -- for fixing a wrong
+like/dislike or picking a different length/tone/vocab without starting over from what the
+AI extracted -- and to open the current review text in `$EDITOR` (`e`, falling back to
+`vi`), replacing it with whatever's in the file once the editor exits. termbox2 has to
+fully release the terminal for that (`tb_shutdown()` / `tb_init()` around the subprocess),
+same as it does for a fatal signal.
 
 ### 4.3 Providers
 A small vtable so backends are swappable, with an optional second entry point for
