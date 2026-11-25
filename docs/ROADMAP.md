@@ -42,7 +42,7 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 - [x] `steamscribe themes <appid>` prints themes JSON and caches it
 - [x] `--verbose` debug log with keys redacted (scoped down from "HTTP and LLM traffic" to lifecycle events -- cache hits/misses, URLs fetched, provider/model used; full raw request/response dumping is left for later if it turns out to be needed)
 
-**Done when:** themes for 3–4 different games (e.g. Valheim, a puzzle game, a shooter) look sensible, and it works with a local Ollama model. The `openai` provider is implemented generically for this (no API key required when `base_url` is set), but hasn't been verified against a real local Ollama/LM Studio server in this environment -- worth a manual check before relying on it.
+**Done when:** themes for 3–4 different games (e.g. Valheim, a puzzle game, a shooter) look sensible, and it works with a local Ollama model. Verified against a real local LM Studio instance (`qwen/qwen3.5-9b`, loaded and served via the `lms` CLI) with the `openai` provider: both theme-extraction passes and review generation produced sensible output end to end. Not yet verified against a real Ollama server specifically (none available to test against) or Anthropic/OpenAI's hosted APIs.
 
 ---
 
