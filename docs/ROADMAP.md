@@ -12,7 +12,7 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 - [x] `steamscribe --version` and `--help`
 - [x] `util/`: arena, strbuf, error type
 - [x] CTest wired up with one dummy test
-- [x] GitHub Actions: build + test on Ubuntu and macOS
+- [x] GitHub Actions: build + test on Ubuntu (Linux is the priority platform; macOS CI dropped for now)
 
 **Done when:** a fresh clone builds with two CMake commands and CI is green.
 
