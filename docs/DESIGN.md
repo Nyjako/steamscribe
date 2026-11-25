@@ -299,7 +299,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 - **Unit:** `text.c`, `strbuf`, theme JSON parsing, prompt building (golden strings). Use CTest with a tiny assert macro, no framework needed.
 - **Fixtures:** saved Steam JSON responses in `tests/fixtures/` so tests run offline.
 - **Fake LLM provider:** `provider = fake` returns canned JSON or text, so you can test the full pipeline without an API key.
-- **Sanitizers:** a `-DSANITIZE=ON` option for ASan/UBSan, run in CI.
+- **Sanitizers:** `-DSANITIZE=ON` builds with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; CI runs a separate `sanitize` job with it (pulled forward from M5).
 
 ---
 

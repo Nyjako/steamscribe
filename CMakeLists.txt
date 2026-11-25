@@ -10,6 +10,12 @@ project(steamscribe VERSION 0.1.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+option(SANITIZE "Build with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
 include(cmake/CPM.cmake)
 
 find_package(CURL REQUIRED)
