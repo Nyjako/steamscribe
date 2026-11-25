@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static review_set_t make_reviews(arena_t *arena)
+static review_set_t make_mixed_reviews(arena_t *arena)
 {
     review_set_t reviews;
     reviews.count = 2;
@@ -47,78 +47,106 @@ static llm_cfg_t make_fake_cfg(void)
     cfg.model = "fake-model";
     cfg.base_url = "";
     cfg.api_key = "";
+    cfg.num_ctx = 0;
     return cfg;
 }
 
-static int test_build_prompt(void)
+static int test_build_side_prompt_liked(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
 
     game_info_t game = make_game(&arena);
-    review_set_t reviews = make_reviews(&arena);
+    review_set_t reviews = make_mixed_reviews(&arena);
 
     char *system = NULL;
     char *user = NULL;
-    themes_build_prompt(&arena, &game, &reviews, &system, &user);
+    themes_build_side_prompt(&arena, &game, &reviews, true, &system, &user);
 
-    TEST_ASSERT(strstr(system, "JSON only") != NULL);
-    TEST_ASSERT(strstr(user, "Valheim") != NULL);
+    TEST_ASSERT(strstr(system, "LIKED") != NULL);
+    TEST_ASSERT(strstr(system, "\"liked\"") != NULL);
+    TEST_ASSERT(strstr(system, "\"disliked\"") == NULL);
+    TEST_ASSERT(strstr(user, "Positive reviews:") != NULL);
     TEST_ASSERT(strstr(user, "building system is great") != NULL);
-    TEST_ASSERT(strstr(user, "Enemy raids") != NULL);
+    TEST_ASSERT(strstr(user, "Enemy raids") == NULL); /* negative review excluded from the liked-side prompt */
 
     arena_free(&arena);
     return 0;
 }
 
-static int test_parse_plain_json(void)
+static int test_build_side_prompt_disliked_empty(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
 
-    const char *text = "{\"liked\":[{\"id\":\"building\",\"label\":\"Building system\"}],\"disliked\":[{\"id\":\"raids\",\"label\":\"Enemy raids\"}]}";
+    game_info_t game = make_game(&arena);
 
-    theme_set_t themes;
+    review_set_t all_positive;
+    all_positive.count = 1;
+    all_positive.items = (steam_review_t *)arena_alloc(&arena, sizeof(steam_review_t));
+    all_positive.items[0].text = arena_strdup(&arena, "Loved every minute.");
+    all_positive.items[0].voted_up = true;
+    all_positive.items[0].votes_up = 1;
+    all_positive.items[0].playtime_min = 10;
+
+    char *system = NULL;
+    char *user = NULL;
+    themes_build_side_prompt(&arena, &game, &all_positive, false, &system, &user);
+
+    TEST_ASSERT(strstr(system, "DISLIKED") != NULL);
+    TEST_ASSERT(strstr(user, "Negative reviews:") != NULL);
+    TEST_ASSERT(strstr(user, "(none)") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_parse_side_response_plain(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    theme_t *items = NULL;
+    size_t count = 0;
     err_t err;
-    int rc = themes_parse_response(&arena, text, &themes, &err);
+    int rc = themes_parse_side_response(&arena, "{\"liked\":[{\"id\":\"co_op\",\"label\":\"Co-op with friends\"}]}", true, &items, &count, &err);
 
     TEST_ASSERT(rc == 0);
-    TEST_ASSERT(themes.n_liked == 1);
-    TEST_ASSERT(strcmp(themes.liked[0].id, "building") == 0);
-    TEST_ASSERT(themes.n_disliked == 1);
-    TEST_ASSERT(strcmp(themes.disliked[0].label, "Enemy raids") == 0);
+    TEST_ASSERT(count == 1);
+    TEST_ASSERT(strcmp(items[0].id, "co_op") == 0);
 
     arena_free(&arena);
     return 0;
 }
 
-static int test_parse_fenced_json(void)
+static int test_parse_side_response_fenced(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
 
-    const char *text = "```json\n{\"liked\":[{\"id\":\"a\",\"label\":\"A\"}],\"disliked\":[]}\n```";
-
-    theme_set_t themes;
+    theme_t *items = NULL;
+    size_t count = 0;
     err_t err;
-    int rc = themes_parse_response(&arena, text, &themes, &err);
+    int rc = themes_parse_side_response(&arena, "```json\n{\"disliked\":[{\"id\":\"raids\",\"label\":\"Enemy raids\"}]}\n```", false, &items, &count, &err);
 
     TEST_ASSERT(rc == 0);
-    TEST_ASSERT(themes.n_liked == 1);
-    TEST_ASSERT(themes.n_disliked == 0);
+    TEST_ASSERT(count == 1);
+    TEST_ASSERT(strcmp(items[0].label, "Enemy raids") == 0);
 
     arena_free(&arena);
     return 0;
 }
 
-static int test_parse_invalid_json(void)
+static int test_parse_side_response_wrong_key(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
 
-    theme_set_t themes;
+    theme_t *items = NULL;
+    size_t count = 0;
     err_t err;
-    int rc = themes_parse_response(&arena, "not json at all", &themes, &err);
+    /* asking for "liked" but the response only has "disliked" */
+    int rc = themes_parse_side_response(&arena, "{\"disliked\":[]}", true, &items, &count, &err);
 
     TEST_ASSERT(rc != 0);
 
@@ -126,66 +154,15 @@ static int test_parse_invalid_json(void)
     return 0;
 }
 
-static int test_extract_success(void)
+static int test_parse_side_response_invalid_json(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
 
-    game_info_t game = make_game(&arena);
-    review_set_t reviews = make_reviews(&arena);
-    llm_cfg_t cfg = make_fake_cfg();
-
-    llm_fake_set_response("{\"liked\":[{\"id\":\"co_op\",\"label\":\"Co-op with friends\"}],\"disliked\":[{\"id\":\"raids\",\"label\":\"Enemy raids\"}]}");
-
-    theme_set_t themes;
+    theme_t *items = NULL;
+    size_t count = 0;
     err_t err;
-    int rc = themes_extract(&arena, &llm_provider_fake, &cfg, &game, &reviews, &themes, &err);
-
-    TEST_ASSERT(rc == 0);
-    TEST_ASSERT(themes.n_liked == 1);
-    TEST_ASSERT(strcmp(themes.liked[0].id, "co_op") == 0);
-
-    arena_free(&arena);
-    return 0;
-}
-
-static int test_extract_retries_once_then_succeeds(void)
-{
-    arena_t arena;
-    arena_init(&arena, 0);
-
-    game_info_t game = make_game(&arena);
-    review_set_t reviews = make_reviews(&arena);
-    llm_cfg_t cfg = make_fake_cfg();
-
-    llm_fake_set_sequence("not valid json", "{\"liked\":[],\"disliked\":[{\"id\":\"grind\",\"label\":\"Grindy progression\"}]}");
-
-    theme_set_t themes;
-    err_t err;
-    int rc = themes_extract(&arena, &llm_provider_fake, &cfg, &game, &reviews, &themes, &err);
-
-    TEST_ASSERT(rc == 0);
-    TEST_ASSERT(themes.n_disliked == 1);
-    TEST_ASSERT(strcmp(themes.disliked[0].id, "grind") == 0);
-
-    arena_free(&arena);
-    return 0;
-}
-
-static int test_extract_fails_after_retry(void)
-{
-    arena_t arena;
-    arena_init(&arena, 0);
-
-    game_info_t game = make_game(&arena);
-    review_set_t reviews = make_reviews(&arena);
-    llm_cfg_t cfg = make_fake_cfg();
-
-    llm_fake_set_response("still not json");
-
-    theme_set_t themes;
-    err_t err;
-    int rc = themes_extract(&arena, &llm_provider_fake, &cfg, &game, &reviews, &themes, &err);
+    int rc = themes_parse_side_response(&arena, "not json at all", true, &items, &count, &err);
 
     TEST_ASSERT(rc != 0);
 
@@ -193,7 +170,7 @@ static int test_extract_fails_after_retry(void)
     return 0;
 }
 
-static int test_to_json_round_trips(void)
+static int test_parse_response_cache_round_trip(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
@@ -220,16 +197,99 @@ static int test_to_json_round_trips(void)
     return 0;
 }
 
+static int test_extract_two_pass_merges_sides(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game = make_game(&arena);
+    review_set_t reviews = make_mixed_reviews(&arena);
+    llm_cfg_t cfg = make_fake_cfg();
+
+    const char *responses[2] = {
+        "{\"liked\":[{\"id\":\"co_op\",\"label\":\"Co-op with friends\"}]}",
+        "{\"disliked\":[{\"id\":\"raids\",\"label\":\"Enemy raids\"}]}",
+    };
+    llm_fake_set_response_sequence(responses, 2);
+
+    theme_set_t themes;
+    err_t err;
+    int rc = themes_extract(&arena, &llm_provider_fake, &cfg, &game, &reviews, &themes, &err);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(themes.n_liked == 1);
+    TEST_ASSERT(strcmp(themes.liked[0].id, "co_op") == 0);
+    TEST_ASSERT(themes.n_disliked == 1);
+    TEST_ASSERT(strcmp(themes.disliked[0].id, "raids") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_extract_retries_within_a_side_then_succeeds(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game = make_game(&arena);
+    review_set_t reviews = make_mixed_reviews(&arena);
+    llm_cfg_t cfg = make_fake_cfg();
+
+    /* call 1 (liked, attempt 1): invalid -> retried
+     * call 2 (liked, attempt 2 / the retry): valid
+     * call 3 (disliked, attempt 1): valid */
+    const char *responses[3] = {
+        "not valid json",
+        "{\"liked\":[{\"id\":\"co_op\",\"label\":\"Co-op with friends\"}]}",
+        "{\"disliked\":[{\"id\":\"raids\",\"label\":\"Enemy raids\"}]}",
+    };
+    llm_fake_set_response_sequence(responses, 3);
+
+    theme_set_t themes;
+    err_t err;
+    int rc = themes_extract(&arena, &llm_provider_fake, &cfg, &game, &reviews, &themes, &err);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(themes.n_liked == 1);
+    TEST_ASSERT(themes.n_disliked == 1);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_extract_fails_after_retry_exhausted(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game = make_game(&arena);
+    review_set_t reviews = make_mixed_reviews(&arena);
+    llm_cfg_t cfg = make_fake_cfg();
+
+    llm_fake_set_response("still not json");
+
+    theme_set_t themes;
+    err_t err;
+    int rc = themes_extract(&arena, &llm_provider_fake, &cfg, &game, &reviews, &themes, &err);
+
+    TEST_ASSERT(rc != 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 int main(void)
 {
-    if (test_build_prompt()) return 1;
-    if (test_parse_plain_json()) return 1;
-    if (test_parse_fenced_json()) return 1;
-    if (test_parse_invalid_json()) return 1;
-    if (test_extract_success()) return 1;
-    if (test_extract_retries_once_then_succeeds()) return 1;
-    if (test_extract_fails_after_retry()) return 1;
-    if (test_to_json_round_trips()) return 1;
+    if (test_build_side_prompt_liked()) return 1;
+    if (test_build_side_prompt_disliked_empty()) return 1;
+    if (test_parse_side_response_plain()) return 1;
+    if (test_parse_side_response_fenced()) return 1;
+    if (test_parse_side_response_wrong_key()) return 1;
+    if (test_parse_side_response_invalid_json()) return 1;
+    if (test_parse_response_cache_round_trip()) return 1;
+    if (test_extract_two_pass_merges_sides()) return 1;
+    if (test_extract_retries_within_a_side_then_succeeds()) return 1;
+    if (test_extract_fails_after_retry_exhausted()) return 1;
 
     printf("all tests passed\n");
     return 0;
