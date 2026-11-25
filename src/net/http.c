@@ -34,17 +34,20 @@ static void backoff_sleep(int attempt)
     nanosleep(&ts, NULL);
 }
 
-int http_get(const http_cfg_t *cfg, const char *url, strbuf_t *out, err_t *err)
+/* Performs `curl` (already configured for the method/url/body/headers of
+ * this request) with the shared timeout/User-Agent/retry-on-429-or-5xx
+ * policy, writing the response body to `out`. */
+static int perform_with_retry(CURL *curl, const http_cfg_t *cfg, const char *url, strbuf_t *out, err_t *err)
 {
-    CURL *curl = curl_easy_init();
-    if (!curl)
-    {
-        err_set(err, -1, "curl_easy_init failed");
-        return -1;
-    }
-
     char user_agent[64];
     snprintf(user_agent, sizeof(user_agent), "steamscribe/%s", STEAMSCRIBE_VERSION);
+
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cfg->connect_timeout_s);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->total_timeout_s);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
     CURLcode res;
     long status = 0;
@@ -53,14 +56,6 @@ int http_get(const http_cfg_t *cfg, const char *url, strbuf_t *out, err_t *err)
     for (;;)
     {
         strbuf_clear(out);
-
-        curl_easy_setopt(curl, CURLOPT_URL, url);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cfg->connect_timeout_s);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->total_timeout_s);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
         res = curl_easy_perform(curl);
         status = 0;
@@ -72,8 +67,6 @@ int http_get(const http_cfg_t *cfg, const char *url, strbuf_t *out, err_t *err)
         attempt++;
         backoff_sleep(attempt);
     }
-
-    curl_easy_cleanup(curl);
 
     if (res != CURLE_OK)
     {
@@ -88,4 +81,49 @@ int http_get(const http_cfg_t *cfg, const char *url, strbuf_t *out, err_t *err)
     }
 
     return 0;
+}
+
+int http_get(const http_cfg_t *cfg, const char *url, strbuf_t *out, err_t *err)
+{
+    CURL *curl = curl_easy_init();
+    if (!curl)
+    {
+        err_set(err, -1, "curl_easy_init failed");
+        return -1;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+
+    int rc = perform_with_retry(curl, cfg, url, out, err);
+
+    curl_easy_cleanup(curl);
+    return rc;
+}
+
+int http_post_json(const http_cfg_t *cfg, const char *url, const http_header_t *headers, size_t header_count, const char *json_body, strbuf_t *out, err_t *err)
+{
+    CURL *curl = curl_easy_init();
+    if (!curl)
+    {
+        err_set(err, -1, "curl_easy_init failed");
+        return -1;
+    }
+
+    struct curl_slist *header_list = curl_slist_append(NULL, "Content-Type: application/json");
+    for (size_t i = 0; i < header_count; i++)
+    {
+        char line[512];
+        snprintf(line, sizeof(line), "%s: %s", headers[i].name, headers[i].value);
+        header_list = curl_slist_append(header_list, line);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_body);
+
+    int rc = perform_with_retry(curl, cfg, url, out, err);
+
+    curl_slist_free_all(header_list);
+    curl_easy_cleanup(curl);
+    return rc;
 }
