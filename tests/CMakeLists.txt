@@ -7,3 +7,17 @@ target_include_directories(test_util PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CUR
 target_compile_options(test_util PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_util COMMAND test_util)
+
+add_executable(test_steam
+    test_steam.c
+    ${CMAKE_SOURCE_DIR}/src/steam/steam.c
+    ${CMAKE_SOURCE_DIR}/src/net/http.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c
+    ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
+    ${CMAKE_SOURCE_DIR}/src/util/error.c)
+target_include_directories(test_steam PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${cjson_SOURCE_DIR})
+target_link_libraries(test_steam PRIVATE cjson CURL::libcurl goblin)
+target_compile_definitions(test_steam PRIVATE FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+target_compile_options(test_steam PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_steam COMMAND test_steam)
