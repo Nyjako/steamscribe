@@ -12,7 +12,11 @@
 #define TUI_KEY_BACKSPACE  0x08
 #define TUI_KEY_BACKSPACE2 0x7f
 #define TUI_KEY_CTRL_C     0x03
-#define TUI_KEY_ARROW_UP   (0xffffu - 18)
-#define TUI_KEY_ARROW_DOWN (0xffffu - 19)
+#define TUI_KEY_ARROW_UP    (0xffffu - 18)
+#define TUI_KEY_ARROW_DOWN  (0xffffu - 19)
+#define TUI_KEY_ARROW_LEFT  (0xffffu - 20)
+#define TUI_KEY_ARROW_RIGHT (0xffffu - 21)
+#define TUI_KEY_F2          (0xffffu - 1)
+#define TUI_KEY_CTRL_S      0x13
 
 #endif

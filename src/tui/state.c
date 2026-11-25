@@ -1,16 +1,28 @@
 #include "tui/state.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "tui/keys.h"
 
-void tui_state_init(app_state_t *state, arena_t *arena, review_tone_t default_tone, const char *initial_query, uint32_t initial_appid)
+static const char *SETTINGS_PROVIDERS[] = {"anthropic", "openai", "ollama"};
+#define SETTINGS_PROVIDER_COUNT (sizeof(SETTINGS_PROVIDERS) / sizeof(SETTINGS_PROVIDERS[0]))
+
+static review_tone_t tone_from_config(const config_t *cfg)
+{
+    if (strcmp(cfg->review_default_tone, "neutral") == 0) return REVIEW_TONE_NEUTRAL;
+    if (strcmp(cfg->review_default_tone, "enthusiastic") == 0) return REVIEW_TONE_ENTHUSIASTIC;
+    return REVIEW_TONE_CASUAL;
+}
+
+void tui_state_init(app_state_t *state, arena_t *arena, config_t *cfg, const char *initial_query, uint32_t initial_appid)
 {
     memset(state, 0, sizeof(*state));
     state->arena = arena;
+    state->cfg = cfg;
     state->screen = TUI_SCREEN_SEARCH;
-    state->tone = default_tone;
+    state->tone = tone_from_config(cfg);
     state->length = REVIEW_LEN_SHORT;
 
     if (initial_appid != 0)
@@ -200,6 +212,193 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
     }
 }
 
+static void copy_into(char *dst, size_t dst_cap, size_t *dst_len, const char *src)
+{
+    size_t len = strlen(src);
+    if (len >= dst_cap) len = dst_cap - 1;
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+    *dst_len = len;
+}
+
+static void settings_enter(app_state_t *state)
+{
+    state->settings_return_screen = state->screen;
+    state->screen = TUI_SCREEN_SETTINGS;
+    state->settings_field = TUI_SETTINGS_FIELD_PROVIDER;
+    state->settings_editing = false;
+    state->status[0] = '\0';
+
+    state->settings_provider_index = 0;
+    for (size_t i = 0; i < SETTINGS_PROVIDER_COUNT; i++)
+    {
+        if (strcmp(state->cfg->llm_provider, SETTINGS_PROVIDERS[i]) == 0)
+        {
+            state->settings_provider_index = (int)i;
+            break;
+        }
+    }
+
+    copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, state->cfg->llm_model);
+    copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, state->cfg->llm_base_url);
+
+    char num_ctx_str[TUI_SETTINGS_NUM_CTX_CAP];
+    snprintf(num_ctx_str, sizeof(num_ctx_str), "%d", state->cfg->llm_num_ctx);
+    copy_into(state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, num_ctx_str);
+}
+
+/* Reverts one field's edit buffer back to *cfg's value (Esc-while-editing). */
+static void settings_reset_field(app_state_t *state, tui_settings_field_t field)
+{
+    switch (field)
+    {
+        case TUI_SETTINGS_FIELD_MODEL:
+            copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, state->cfg->llm_model);
+            break;
+        case TUI_SETTINGS_FIELD_BASE_URL:
+            copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, state->cfg->llm_base_url);
+            break;
+        case TUI_SETTINGS_FIELD_NUM_CTX:
+        {
+            char num_ctx_str[TUI_SETTINGS_NUM_CTX_CAP];
+            snprintf(num_ctx_str, sizeof(num_ctx_str), "%d", state->cfg->llm_num_ctx);
+            copy_into(state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, num_ctx_str);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+/* Writes the staging buffers into *cfg (arena-allocated); the caller still
+ * has to perform the actual config_save() IO. */
+static void settings_commit_to_cfg(app_state_t *state)
+{
+    state->cfg->llm_provider = arena_strdup(state->arena, SETTINGS_PROVIDERS[state->settings_provider_index]);
+    state->cfg->llm_model = arena_strdup(state->arena, state->settings_model);
+    state->cfg->llm_base_url = arena_strdup(state->arena, state->settings_base_url);
+    state->cfg->llm_num_ctx = state->settings_num_ctx_len > 0 ? atoi(state->settings_num_ctx) : 0;
+}
+
+static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_t key)
+{
+    if (state->settings_editing)
+    {
+        char *buf = NULL;
+        size_t *len = NULL;
+        size_t cap = 0;
+
+        switch (state->settings_field)
+        {
+            case TUI_SETTINGS_FIELD_MODEL:
+                buf = state->settings_model;
+                len = &state->settings_model_len;
+                cap = sizeof(state->settings_model);
+                break;
+            case TUI_SETTINGS_FIELD_BASE_URL:
+                buf = state->settings_base_url;
+                len = &state->settings_base_url_len;
+                cap = sizeof(state->settings_base_url);
+                break;
+            case TUI_SETTINGS_FIELD_NUM_CTX:
+                buf = state->settings_num_ctx;
+                len = &state->settings_num_ctx_len;
+                cap = sizeof(state->settings_num_ctx);
+                break;
+            default:
+                break;
+        }
+
+        if (!buf)
+        {
+            state->settings_editing = false;
+            return TUI_ACTION_NONE;
+        }
+
+        if (key == TUI_KEY_ENTER)
+        {
+            state->settings_editing = false;
+            return TUI_ACTION_NONE;
+        }
+
+        if (key == TUI_KEY_ESC)
+        {
+            settings_reset_field(state, state->settings_field);
+            state->settings_editing = false;
+            return TUI_ACTION_NONE;
+        }
+
+        if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
+        {
+            if (*len > 0) buf[--(*len)] = '\0';
+            return TUI_ACTION_NONE;
+        }
+
+        bool numeric_only = (state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+        bool ok_char = numeric_only ? (ch >= '0' && ch <= '9') : is_printable(ch);
+
+        if (ok_char && *len + 1 < cap)
+        {
+            buf[(*len)++] = (char)ch;
+            buf[*len] = '\0';
+        }
+
+        return TUI_ACTION_NONE;
+    }
+
+    /* navigation mode: moving between fields, not editing one */
+    if (ch == 'q')
+    {
+        state->screen = TUI_SCREEN_QUIT;
+        return TUI_ACTION_QUIT;
+    }
+
+    if (key == TUI_KEY_ESC)
+    {
+        state->screen = state->settings_return_screen;
+        return TUI_ACTION_NONE;
+    }
+
+    if (key == TUI_KEY_CTRL_S)
+    {
+        settings_commit_to_cfg(state);
+        return TUI_ACTION_SAVE_SETTINGS;
+    }
+
+    if ((key == TUI_KEY_ARROW_UP || ch == 'k') && state->settings_field > 0)
+    {
+        state->settings_field--;
+        return TUI_ACTION_NONE;
+    }
+
+    if ((key == TUI_KEY_ARROW_DOWN || ch == 'j') && state->settings_field + 1 < TUI_SETTINGS_FIELD_COUNT)
+    {
+        state->settings_field++;
+        return TUI_ACTION_NONE;
+    }
+
+    if (state->settings_field == TUI_SETTINGS_FIELD_PROVIDER)
+    {
+        if (key == TUI_KEY_ARROW_LEFT || ch == 'h')
+        {
+            state->settings_provider_index = (state->settings_provider_index + (int)SETTINGS_PROVIDER_COUNT - 1) % (int)SETTINGS_PROVIDER_COUNT;
+        }
+        else if (key == TUI_KEY_ARROW_RIGHT || ch == 'l' || key == TUI_KEY_ENTER)
+        {
+            state->settings_provider_index = (state->settings_provider_index + 1) % (int)SETTINGS_PROVIDER_COUNT;
+        }
+        return TUI_ACTION_NONE;
+    }
+
+    if (key == TUI_KEY_ENTER)
+    {
+        state->settings_editing = true;
+        return TUI_ACTION_NONE;
+    }
+
+    return TUI_ACTION_NONE;
+}
+
 static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
 {
     if (ch == 'q')
@@ -225,6 +424,12 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
         return TUI_ACTION_QUIT;
     }
 
+    if (key == TUI_KEY_F2 && state->screen != TUI_SCREEN_SETTINGS)
+    {
+        settings_enter(state);
+        return TUI_ACTION_NONE;
+    }
+
     switch (state->screen)
     {
         case TUI_SCREEN_SEARCH:
@@ -244,6 +449,9 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
 
         case TUI_SCREEN_RESULT:
             return handle_result_key(state, ch);
+
+        case TUI_SCREEN_SETTINGS:
+            return handle_settings_key(state, ch, key);
 
         case TUI_SCREEN_LOADING_GAME:
         case TUI_SCREEN_LOADING_REVIEW:
@@ -310,4 +518,15 @@ void tui_apply_review_failed(app_state_t *state, const char *message)
 {
     snprintf(state->status, sizeof(state->status), "Could not generate review: %s", message);
     state->screen = TUI_SCREEN_RESULT;
+}
+
+void tui_apply_settings_saved(app_state_t *state)
+{
+    state->status[0] = '\0';
+    state->screen = state->settings_return_screen;
+}
+
+void tui_apply_settings_save_failed(app_state_t *state, const char *message)
+{
+    snprintf(state->status, sizeof(state->status), "Could not save settings: %s", message);
 }

@@ -78,10 +78,50 @@ static int test_reads_existing_values(void)
     return 0;
 }
 
+static int test_save_then_reload_round_trips(void)
+{
+    char config_home[512];
+    snprintf(config_home, sizeof(config_home), "%s/config_save_round_trip", TEST_TMP_DIR);
+    setenv("XDG_CONFIG_HOME", config_home, 1);
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg;
+    err_t err;
+    TEST_ASSERT(config_load(&arena, &cfg, &err) == 0);
+
+    cfg.llm_provider = arena_strdup(&arena, "ollama");
+    cfg.llm_model = arena_strdup(&arena, "qwen2.5:14b");
+    cfg.llm_base_url = arena_strdup(&arena, "http://localhost:11434");
+    cfg.llm_num_ctx = 16384;
+
+    TEST_ASSERT(config_save(&cfg, &err) == 0);
+
+    arena_t arena2;
+    arena_init(&arena2, 0);
+
+    config_t reloaded;
+    TEST_ASSERT(config_load(&arena2, &reloaded, &err) == 0);
+
+    TEST_ASSERT(strcmp(reloaded.llm_provider, "ollama") == 0);
+    TEST_ASSERT(strcmp(reloaded.llm_model, "qwen2.5:14b") == 0);
+    TEST_ASSERT(strcmp(reloaded.llm_base_url, "http://localhost:11434") == 0);
+    TEST_ASSERT(reloaded.llm_num_ctx == 16384);
+    /* unrelated sections survive the round trip unchanged */
+    TEST_ASSERT(strcmp(reloaded.steam_language, "english") == 0);
+    TEST_ASSERT(reloaded.steam_review_count == 200);
+
+    arena_free(&arena);
+    arena_free(&arena2);
+    return 0;
+}
+
 int main(void)
 {
     if (test_defaults_and_env_key()) return 1;
     if (test_reads_existing_values()) return 1;
+    if (test_save_then_reload_round_trips()) return 1;
 
     printf("all tests passed\n");
     return 0;

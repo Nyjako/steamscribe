@@ -127,7 +127,8 @@ typedef struct {
 ```
 src/
   main.c            arg parsing, subcommands, app bootstrap
-  config.c/.h       XDG paths, inih loading, env API keys
+  config.c/.h       XDG paths, inih loading, env API keys, config_save() to write
+                    config.ini back out (used by the TUI's Settings screen)
   util/
     arena.c/.h      arena allocator (one per session; frees everything at once)
     strbuf.c/.h     growable string buffer
@@ -147,7 +148,10 @@ src/
     pipeline.c/.h   shared fetch-or-cache/call-the-LLM steps, used by both main.c and tui/
   tui/
     state.c/.h      pure state machine (screens, keys -> actions, result folding) -- no
-                    termbox2 dependency, unit-tested without a terminal
+                    termbox2 dependency, unit-tested without a terminal. Includes a
+                    Settings screen (F2) for provider/model/base_url/num_ctx, staged
+                    in app_state_t and only written into the live config_t (then
+                    config_save()'d) on Ctrl+S; Esc discards the edit
     keys.h          the handful of termbox2 TB_KEY_* values state.c reacts to, duplicated
                     as plain macros so state.c doesn't need to include termbox2.h
     app.c/.h        termbox2 init/shutdown (incl. signal handling) and the main loop:
