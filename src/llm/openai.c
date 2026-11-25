@@ -8,6 +8,11 @@
 
 #define OPENAI_DEFAULT_BASE_URL "https://api.openai.com/v1"
 
+/* This provider also covers local servers (LM Studio, llama.cpp's
+ * llama-server, ...) via base_url, and local CPU inference can take well
+ * past libcurl's default 30s timeout -- same reasoning as llm/ollama.c. */
+#define OPENAI_TOTAL_TIMEOUT_S 180
+
 static int openai_complete(const llm_cfg_t *cfg, const char *system, const char *user, strbuf_t *out, err_t *err)
 {
     strbuf_clear(out);
@@ -51,6 +56,8 @@ static int openai_complete(const llm_cfg_t *cfg, const char *system, const char 
     }
 
     http_cfg_t http_cfg = http_cfg_default();
+    http_cfg.total_timeout_s = OPENAI_TOTAL_TIMEOUT_S;
+
     strbuf_t response;
     strbuf_init(&response);
 
