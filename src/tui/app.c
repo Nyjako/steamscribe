@@ -14,13 +14,6 @@
 #include "tui/state.h"
 #include "tui/widgets.h"
 
-static review_tone_t tone_from_config(const config_t *cfg)
-{
-    if (strcmp(cfg->review_default_tone, "neutral") == 0) return REVIEW_TONE_NEUTRAL;
-    if (strcmp(cfg->review_default_tone, "enthusiastic") == 0) return REVIEW_TONE_ENTHUSIASTIC;
-    return REVIEW_TONE_CASUAL;
-}
-
 static void handle_fatal_signal(int sig)
 {
     tb_shutdown();
@@ -44,6 +37,13 @@ static bool is_loading_screen(tui_screen_t screen)
     return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
+static void draw_settings_field(int y, const char *label, const char *value, bool focused, bool editing)
+{
+    uintattr_t fg = focused ? TB_BLACK : TB_DEFAULT;
+    uintattr_t bg = focused ? TB_CYAN : TB_DEFAULT;
+    tb_printf(2, y, fg, bg, "%-10s %s%s", label, value, (focused && editing) ? "_" : "");
+}
+
 static void draw(app_state_t *state, char spinner_ch)
 {
     tb_clear();
@@ -51,7 +51,7 @@ static void draw(app_state_t *state, char spinner_ch)
     switch (state->screen)
     {
         case TUI_SCREEN_SEARCH:
-            widgets_draw_header(1, "steamscribe -- search for a game");
+            widgets_draw_header(1, "steamscribe -- search for a game (F2 for settings)");
             widgets_draw_text_input(3, "Game name >", state->search_input);
             widgets_draw_status_bar(state->status);
             break;
@@ -111,6 +111,22 @@ static void draw(app_state_t *state, char spinner_ch)
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
             widgets_draw_status_bar(state->status);
             break;
+
+        case TUI_SCREEN_SETTINGS:
+        {
+            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles provider, Enter edits, Ctrl+S saves, Esc cancels");
+
+            static const char *provider_names[] = {"anthropic", "openai", "ollama"};
+            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false);
+            draw_settings_field(4, "Model:", state->settings_model, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing);
+            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing);
+            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing);
+
+            tb_print(2, 8, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
+            tb_print(2, 9, TB_DEFAULT, TB_DEFAULT, "API keys come only from ANTHROPIC_API_KEY / OPENAI_API_KEY -- not editable here.");
+            widgets_draw_status_bar(state->status);
+            break;
+        }
 
         case TUI_SCREEN_QUIT:
         default:
@@ -229,6 +245,20 @@ static void *bg_generate_review_thread(void *argp)
     return NULL;
 }
 
+static void do_save_settings(app_state_t *state)
+{
+    err_t err;
+    err_clear(&err);
+
+    if (config_save(state->cfg, &err) != 0)
+    {
+        tui_apply_settings_save_failed(state, err.msg);
+        return;
+    }
+
+    tui_apply_settings_saved(state);
+}
+
 static bool bg_result_is_done(bg_result_t *result)
 {
     pthread_mutex_lock(&result->mutex);
@@ -286,7 +316,7 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
     }
 }
 
-int tui_run(arena_t *arena, const config_t *cfg, const tui_options_t *options, err_t *err)
+int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *err)
 {
     if (tb_init() != 0)
     {
@@ -297,7 +327,7 @@ int tui_run(arena_t *arena, const config_t *cfg, const tui_options_t *options, e
     install_signal_handlers();
 
     app_state_t state;
-    tui_state_init(&state, arena, tone_from_config(cfg), options->initial_query, options->initial_appid);
+    tui_state_init(&state, arena, cfg, options->initial_query, options->initial_appid);
 
     while (state.screen != TUI_SCREEN_QUIT)
     {
@@ -316,6 +346,7 @@ int tui_run(arena_t *arena, const config_t *cfg, const tui_options_t *options, e
 
         tui_action_t action = tui_handle_key(&state, ev.ch, ev.key);
         if (action == TUI_ACTION_SEARCH) do_search(&state, cfg);
+        else if (action == TUI_ACTION_SAVE_SETTINGS) do_save_settings(&state);
     }
 
     tb_shutdown();
