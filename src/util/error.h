@@ -4,7 +4,7 @@
 typedef struct err_t
 {
     int code;
-    char msg[256];
+    char msg[512]; /* long enough for a message that embeds a full Steam API URL */
 } err_t;
 
 void err_clear(err_t *err);
