@@ -6,12 +6,14 @@
 #include <string.h>
 
 #include "config.h"
+#include "core/pipeline.h"
 #include "core/review.h"
 #include "core/themes.h"
 #include "llm/llm.h"
 #include "net/http.h"
 #include "steam/cache.h"
 #include "steam/steam.h"
+#include "tui/app.h"
 #include "util/arena.h"
 #include "util/debug_log.h"
 #include "util/error.h"
@@ -30,9 +32,9 @@ static void print_help(void)
     printf("steamscribe %s\n", STEAMSCRIBE_VERSION);
     printf("Turn a game's Steam page and player reviews into a review draft you write yourself.\n\n");
     printf("Usage:\n");
-    printf("  steamscribe                  interactive: asks for a game name\n");
-    printf("  steamscribe <name>            start with a search for <name>\n");
-    printf("  steamscribe --appid <id>       skip search, use an app id directly\n\n");
+    printf("  steamscribe                  interactive TUI: asks for a game name\n");
+    printf("  steamscribe <name>            TUI, starting with a search for <name>\n");
+    printf("  steamscribe --appid <id>       TUI, skipping search, using an app id directly\n\n");
     printf("  steamscribe search <name>     print search matches\n");
     printf("  steamscribe info <appid>      print game info\n");
     printf("  steamscribe themes <appid>    print extracted likes/dislikes as JSON\n\n");
@@ -40,6 +42,7 @@ static void print_help(void)
     printf("  -h, --help                    show this help and exit\n");
     printf("      --version                show the version and exit\n");
     printf("      --verbose                log HTTP/LLM activity to debug.log\n");
+    printf("      --plain                  use the old line-based prompts instead of the TUI\n");
 }
 
 /* Reads one line from stdin into buf, stripping the trailing newline.
@@ -56,24 +59,6 @@ static void read_line(char *buf, size_t size)
 
     size_t len = strlen(buf);
     while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) buf[--len] = '\0';
-}
-
-static int resolve_llm(const config_t *cfg, const llm_provider_t **out_provider, llm_cfg_t *out_cfg, err_t *err)
-{
-    const llm_provider_t *provider = llm_provider_find(cfg->llm_provider);
-    if (!provider)
-    {
-        err_set(err, -1, "unknown llm provider \"%s\"", cfg->llm_provider);
-        return -1;
-    }
-
-    bool is_anthropic = strcmp(cfg->llm_provider, "anthropic") == 0;
-    out_cfg->model = cfg->llm_model;
-    out_cfg->base_url = cfg->llm_base_url;
-    out_cfg->api_key = is_anthropic ? cfg->anthropic_api_key : cfg->openai_api_key;
-
-    *out_provider = provider;
-    return 0;
 }
 
 static int cmd_search(arena_t *arena, const config_t *cfg, const char *query)
@@ -105,82 +90,13 @@ static int cmd_search(arena_t *arena, const config_t *cfg, const char *query)
     return 0;
 }
 
-/* Fetches appdetails for `appid`, serving a fresh cache entry when there is
- * one and caching a fresh fetch otherwise. */
-static int fetch_app_details_cached(arena_t *arena, const config_t *cfg, uint32_t appid, game_info_t *out, err_t *err)
-{
-    char *cached = NULL;
-    int hit = cache_get(arena, appid, "details", cfg->steam_cache_ttl_hours, &cached, err);
-
-    if (hit == 1)
-    {
-        debug_logf("appdetails: cache hit for appid=%u", appid);
-        return steam_parse_app_details(arena, appid, cached, out, err);
-    }
-
-    char url[256];
-    snprintf(url, sizeof(url), "https://store.steampowered.com/api/appdetails?appids=%u&l=%s", appid, cfg->steam_language);
-
-    debug_logf("appdetails: GET %s", url);
-
-    http_cfg_t http_cfg = http_cfg_default();
-    strbuf_t body;
-    strbuf_init(&body);
-
-    int rc = http_get(&http_cfg, url, &body, err);
-    if (rc == 0)
-    {
-        rc = steam_parse_app_details(arena, appid, strbuf_cstr(&body), out, err);
-        if (rc == 0) cache_put(appid, "details", strbuf_cstr(&body), err);
-    }
-
-    strbuf_free(&body);
-    return rc;
-}
-
-/* Fetches extracted liked/disliked themes for `appid`, serving a fresh cache
- * entry when there is one and sampling reviews + calling the LLM otherwise. */
-static int fetch_themes_cached(arena_t *arena, const config_t *cfg, uint32_t appid, const game_info_t *game, theme_set_t *out, err_t *err)
-{
-    char *cached = NULL;
-    int hit = cache_get(arena, appid, "themes", cfg->steam_cache_ttl_hours, &cached, err);
-
-    if (hit == 1)
-    {
-        debug_logf("themes: cache hit for appid=%u", appid);
-        return themes_parse_response(arena, cached, out, err);
-    }
-
-    debug_logf("themes: sampling %d reviews for appid=%u", cfg->steam_review_count, appid);
-
-    review_set_t reviews;
-    if (steam_reviews_sample(arena, appid, cfg->steam_language, (size_t)cfg->steam_review_count, &reviews, err) != 0) return -1;
-
-    const llm_provider_t *provider;
-    llm_cfg_t llm_cfg;
-    if (resolve_llm(cfg, &provider, &llm_cfg, err) != 0) return -1;
-
-    debug_logf("themes: calling provider=%s model=%s base_url=%s api_key=%s", provider->name, cfg->llm_model, cfg->llm_base_url[0] ? cfg->llm_base_url : "(default)", debug_log_redact_key(llm_cfg.api_key));
-
-    if (themes_extract(arena, provider, &llm_cfg, game, &reviews, out, err) != 0) return -1;
-
-    char *themes_json = themes_to_json(out);
-    if (themes_json)
-    {
-        cache_put(appid, "themes", themes_json, err);
-        free(themes_json);
-    }
-
-    return 0;
-}
-
 static int cmd_info(arena_t *arena, const config_t *cfg, uint32_t appid)
 {
     err_t err;
     err_clear(&err);
 
     game_info_t info;
-    if (fetch_app_details_cached(arena, cfg, appid, &info, &err) != 0)
+    if (pipeline_fetch_game(arena, cfg, appid, &info, &err) != 0)
     {
         fprintf(stderr, "info failed: %s\n", err.msg);
         return 1;
@@ -213,14 +129,14 @@ static int cmd_themes(arena_t *arena, const config_t *cfg, uint32_t appid)
     err_clear(&err);
 
     game_info_t game;
-    if (fetch_app_details_cached(arena, cfg, appid, &game, &err) != 0)
+    if (pipeline_fetch_game(arena, cfg, appid, &game, &err) != 0)
     {
         fprintf(stderr, "themes failed: %s\n", err.msg);
         return 1;
     }
 
     theme_set_t themes;
-    if (fetch_themes_cached(arena, cfg, appid, &game, &themes, &err) != 0)
+    if (pipeline_fetch_themes(arena, cfg, appid, &game, &themes, &err) != 0)
     {
         fprintf(stderr, "themes failed: %s\n", err.msg);
         return 1;
@@ -317,7 +233,7 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     err_clear(&err);
 
     game_info_t game;
-    if (fetch_app_details_cached(arena, cfg, appid, &game, &err) != 0)
+    if (pipeline_fetch_game(arena, cfg, appid, &game, &err) != 0)
     {
         fprintf(stderr, "could not load game info: %s\n", err.msg);
         return 1;
@@ -327,7 +243,7 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     printf("Reading %d player reviews...\n", cfg->steam_review_count);
 
     theme_set_t themes;
-    if (fetch_themes_cached(arena, cfg, appid, &game, &themes, &err) != 0)
+    if (pipeline_fetch_themes(arena, cfg, appid, &game, &themes, &err) != 0)
     {
         fprintf(stderr, "could not read player reviews: %s\n", err.msg);
         return 1;
@@ -371,7 +287,7 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
 
     const llm_provider_t *provider;
     llm_cfg_t llm_cfg;
-    if (resolve_llm(cfg, &provider, &llm_cfg, &err) != 0)
+    if (pipeline_resolve_llm(cfg, &provider, &llm_cfg, &err) != 0)
     {
         fprintf(stderr, "could not generate review: %s\n", err.msg);
         return 1;
@@ -437,6 +353,7 @@ int main(int argc, char **argv)
     bool have_arg = cmd_i > 0 && cmd_i + 1 < argc;
     bool is_known_subcommand = cmd_i > 0 && (strcmp(argv[cmd_i], "search") == 0 || strcmp(argv[cmd_i], "info") == 0 || strcmp(argv[cmd_i], "themes") == 0);
     const char *appid_flag_value = goblin_argv_find_value(argc, argv, "--appid");
+    bool plain = goblin_argv_has_flag(argc, argv, "--plain");
 
     if (have_arg && strcmp(argv[cmd_i], "search") == 0)
     {
@@ -481,12 +398,26 @@ int main(int argc, char **argv)
             fprintf(stderr, "--appid: \"%s\" is not a valid app id\n", appid_flag_value);
             rc = 1;
         }
-        else
+        else if (plain)
         {
             rc = cmd_interactive(&arena, &cfg, appid);
         }
+        else
+        {
+            tui_options_t options;
+            options.initial_query = NULL;
+            options.initial_appid = appid;
+
+            err_t tui_err;
+            err_clear(&tui_err);
+            if (tui_run(&arena, &cfg, &options, &tui_err) != 0)
+            {
+                fprintf(stderr, "could not start the TUI: %s\n", tui_err.msg);
+                rc = 1;
+            }
+        }
     }
-    else
+    else if (plain)
     {
         const char *query = (cmd_i > 0) ? argv[cmd_i] : NULL;
 
@@ -510,6 +441,20 @@ int main(int argc, char **argv)
         uint32_t appid = 0;
         rc = resolve_appid_from_query(&arena, &cfg, query, &appid);
         if (rc == 0) rc = cmd_interactive(&arena, &cfg, appid);
+    }
+    else
+    {
+        tui_options_t options;
+        options.initial_query = (cmd_i > 0) ? argv[cmd_i] : NULL;
+        options.initial_appid = 0;
+
+        err_t tui_err;
+        err_clear(&tui_err);
+        if (tui_run(&arena, &cfg, &options, &tui_err) != 0)
+        {
+            fprintf(stderr, "could not start the TUI: %s\n", tui_err.msg);
+            rc = 1;
+        }
     }
 
     arena_free(&arena);
