@@ -71,7 +71,7 @@ int steam_parse_search(arena_t *arena, const char *json_text, steam_search_resul
     cJSON *root = cJSON_Parse(json_text);
     if (!root)
     {
-        err_set(err, -1, "invalid search response JSON");
+        err_set(err, -1, "invalid search response JSON (got: %.80s)", json_text);
         return -1;
     }
 
@@ -108,7 +108,7 @@ int steam_parse_app_details(arena_t *arena, uint32_t appid, const char *json_tex
     cJSON *root = cJSON_Parse(json_text);
     if (!root)
     {
-        err_set(err, -1, "invalid appdetails response JSON");
+        err_set(err, -1, "invalid appdetails response JSON (got: %.80s)", json_text);
         return -1;
     }
 
@@ -149,7 +149,7 @@ int steam_parse_reviews_page(arena_t *arena, const char *json_text, steam_review
     cJSON *root = cJSON_Parse(json_text);
     if (!root)
     {
-        err_set(err, -1, "invalid appreviews response JSON");
+        err_set(err, -1, "invalid appreviews response JSON (got: %.80s)", json_text);
         return -1;
     }
 

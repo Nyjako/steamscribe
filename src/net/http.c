@@ -47,7 +47,13 @@ static int perform_with_retry(CURL *curl, const http_cfg_t *cfg, const char *url
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, cfg->connect_timeout_s);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, cfg->total_timeout_s);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    /* Deliberately not following redirects: every endpoint this app calls
+     * returns JSON directly on success, so a 3xx here means the request
+     * was rejected (e.g. redirected to a store HTML page) rather than
+     * reaching the API -- surfacing that as a clear error beats silently
+     * downloading and failing to parse the redirect target as JSON. */
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
 
     CURLcode res;
     long status = 0;
@@ -71,6 +77,14 @@ static int perform_with_retry(CURL *curl, const http_cfg_t *cfg, const char *url
     if (res != CURLE_OK)
     {
         err_set(err, (int)res, "request to %s failed: %s", url, curl_easy_strerror(res));
+        return -1;
+    }
+
+    if (status >= 300 && status < 400)
+    {
+        char *redirect_url = NULL;
+        curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &redirect_url);
+        err_set(err, (int)status, "HTTP %ld from %s, redirected to %s -- the request was likely blocked rather than reaching the API", status, url, redirect_url ? redirect_url : "(unknown)");
         return -1;
     }
 
