@@ -18,9 +18,12 @@ int pipeline_resolve_llm(const config_t *cfg, const llm_provider_t **out_provide
     }
 
     bool is_anthropic = strcmp(cfg->llm_provider, "anthropic") == 0;
+    bool is_openai = strcmp(cfg->llm_provider, "openai") == 0;
+
     out_cfg->model = cfg->llm_model;
     out_cfg->base_url = cfg->llm_base_url;
-    out_cfg->api_key = is_anthropic ? cfg->anthropic_api_key : cfg->openai_api_key;
+    out_cfg->num_ctx = cfg->llm_num_ctx;
+    out_cfg->api_key = is_anthropic ? cfg->anthropic_api_key : (is_openai ? cfg->openai_api_key : "");
 
     *out_provider = provider;
     return 0;

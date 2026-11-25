@@ -13,9 +13,12 @@
 
 static const char *DEFAULT_CONFIG_INI =
     "[llm]\n"
-    "provider = anthropic          ; anthropic | openai\n"
+    "provider = anthropic          ; anthropic | openai | ollama\n"
     "model    = claude-haiku-5-5\n"
-    "; base_url = http://localhost:11434/v1   ; for Ollama / LM Studio (provider = openai)\n"
+    "; base_url = http://localhost:1234/v1    ; for LM Studio (provider = openai)\n"
+    "; For a local Ollama model instead, use provider = ollama (talks to Ollama's own\n"
+    "; API, not the OpenAI-compatible one; defaults to http://localhost:11434).\n"
+    "; num_ctx  = 8192              ; ollama only -- raise this if reviews get truncated\n"
     "\n"
     "[steam]\n"
     "language    = english\n"
@@ -31,6 +34,7 @@ typedef struct raw_config_t
     char *llm_provider;
     char *llm_model;
     char *llm_base_url;
+    char *llm_num_ctx;
     char *steam_language;
     char *steam_review_count;
     char *steam_cache_ttl_hours;
@@ -47,6 +51,7 @@ static int steamscribe_ini_handler(void *user, const char *section, const char *
     if (MATCH("llm", "provider")) cfg->llm_provider = strdup(value);
     else if (MATCH("llm", "model")) cfg->llm_model = strdup(value);
     else if (MATCH("llm", "base_url")) cfg->llm_base_url = strdup(value);
+    else if (MATCH("llm", "num_ctx")) cfg->llm_num_ctx = strdup(value);
     else if (MATCH("steam", "language")) cfg->steam_language = strdup(value);
     else if (MATCH("steam", "review_count")) cfg->steam_review_count = strdup(value);
     else if (MATCH("steam", "cache_ttl_hours")) cfg->steam_cache_ttl_hours = strdup(value);
@@ -75,6 +80,7 @@ static void free_raw_config(raw_config_t *raw)
     free(raw->llm_provider);
     free(raw->llm_model);
     free(raw->llm_base_url);
+    free(raw->llm_num_ctx);
     free(raw->steam_language);
     free(raw->steam_review_count);
     free(raw->steam_cache_ttl_hours);
@@ -116,6 +122,7 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
     out->llm_provider = arena_strdup(arena, raw.llm_provider ? raw.llm_provider : "anthropic");
     out->llm_model = arena_strdup(arena, raw.llm_model ? raw.llm_model : "claude-haiku-5-5");
     out->llm_base_url = arena_strdup(arena, raw.llm_base_url ? raw.llm_base_url : "");
+    out->llm_num_ctx = raw.llm_num_ctx ? atoi(raw.llm_num_ctx) : 8192;
     out->steam_language = arena_strdup(arena, raw.steam_language ? raw.steam_language : "english");
     out->steam_review_count = raw.steam_review_count ? atoi(raw.steam_review_count) : 200;
     out->steam_cache_ttl_hours = raw.steam_cache_ttl_hours ? atoi(raw.steam_cache_ttl_hours) : 24;
