@@ -72,6 +72,16 @@ target_compile_options(test_text PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_text COMMAND test_text)
 
+add_executable(test_tui_state
+    test_tui_state.c
+    ${CMAKE_SOURCE_DIR}/src/tui/state.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c)
+target_include_directories(test_tui_state PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_tui_state PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_tui_state COMMAND test_tui_state)
+
+
 
 
 
