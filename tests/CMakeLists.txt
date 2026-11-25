@@ -21,3 +21,18 @@ target_compile_definitions(test_steam PRIVATE FIXTURES_DIR="${CMAKE_CURRENT_SOUR
 target_compile_options(test_steam PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_steam COMMAND test_steam)
+
+add_executable(test_config
+    test_config.c
+    ${CMAKE_SOURCE_DIR}/src/config.c
+    ${CMAKE_SOURCE_DIR}/src/steam/cache.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c
+    ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
+    ${CMAKE_SOURCE_DIR}/src/util/error.c)
+target_include_directories(test_config PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_config PRIVATE inih goblin)
+target_compile_definitions(test_config PRIVATE TEST_TMP_DIR="${CMAKE_CURRENT_BINARY_DIR}/tmp_config_test")
+target_compile_options(test_config PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_config COMMAND test_config)
+
