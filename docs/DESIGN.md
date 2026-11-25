@@ -53,12 +53,32 @@ All endpoints are public JSON. No key is needed.
 (User tags aren't included. Genres and description are enough context.)
 
 ### 3.3 Reviews
-`GET https://store.steampowered.com/appreviews/<id>?json=1&filter=all&language=english&review_type=<positive|negative>&purchase_type=all&num_per_page=100&cursor=<c>`
+`GET https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/?input_json=<json>`
 
-- `filter=all` sorts by helpfulness, which is what we want.
-- `cursor` starts as `*`, comes back in each response, and **must be URL-encoded** on the next request.
-- First page includes `query_summary` (`review_score_desc`, `total_positive`, `total_negative`).
-- Each review has `review` (text), `voted_up`, `votes_up`, `author.playtime_forever`, and more.
+The old `store.steampowered.com/appreviews/<id>?json=1` endpoint is deprecated and
+redirects every plain HTTP client (confirmed from multiple networks -- looked like a
+TLS/fingerprint-based bot check). `IUserReviewsService.GetAppReviews` is Valve's
+documented replacement and works fine keyless. It's a Service-interface method, so
+every parameter besides the optional `key` travels inside a single JSON-encoded
+`input_json` query value rather than as flat query params:
+`{"appid": <id>, "filter": 1, "review_type": <0|1|2>, "purchase_type": 1, "num_per_page": 100, "cursor": "<c>", "languages": ["english"]}`
+
+- `filter` is an int enum (`IUserReviewsService#EUserReviewsAppReviewsFilter`): we use
+  `1` (Recent), not the default `0` (Helpful) -- Helpful widens its day_range until it
+  finds results and never runs dry, so a cursor loop relying on an eventual empty page
+  to terminate would loop forever.
+- `review_type` (`0` all, `1` positive, `2` negative) and `purchase_type` (`1` = all,
+  matching the old `purchase_type=all`) are int enums too.
+- `cursor` starts as `*`, comes back in each response, and **must be URL-encoded** on
+  the next request (it's one value inside `input_json`, which itself is URL-encoded as
+  a whole).
+- The response has no `success` field -- check the HTTP status instead. Everything is
+  nested under a top-level `response` object, which is `{}` for an unknown appid.
+- `query_summary` is present on every page, but its score fields (`review_score_desc`,
+  `total_positive`, `total_negative`) only appear on the first page of a
+  `review_type=0` (all) query.
+- Each review has `review` (text), `voted_up`, `votes_up`, `author.playtime_forever`,
+  and more.
 
 **Strategy:** fetch N/2 positive and N/2 negative (default 100 + 100). Drop very short reviews (< 40 chars) and clip each to about 1,200 chars before sending to the LLM.
 
@@ -308,7 +328,6 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 | Risk                                         | Mitigation                                           |
 |----------------------------------------------|------------------------------------------------------|
 | Steam changes or rate-limits endpoints       | caching, retries, fixtures, clear error message      |
-| `/appreviews/` redirects every plain HTTP client tried so far (302 to the store homepage instead of JSON) -- confirmed from both a cloud/datacenter network and a real residential one, and unaffected by which query parameters or headers are sent (tested down to the bare minimum `?json=1` with curl's own default User-Agent). `/api/appdetails` and `/api/storesearch/` on the same domain are unaffected. This looks like a TLS/fingerprint-based bot check, not an IP- or request-shape-based one, which no plain libcurl client can pass -- there is currently **no known client-side fix** | `http_get` doesn't follow redirects and reports the redirect target instead of trying to parse the HTML, so the failure is at least clear. Real fix (if one exists) is unknown; candidates to investigate: a different/undocumented reviews endpoint, a user-supplied session cookie from their own browser, or dropping the "read live reviews" feature in favor of a user-pasted review export |
 | LLM returns invalid JSON                     | fence stripping, one retry, debug log                |
 | Generated text sounds like AI                | short default, "plain words" rules, easy edit/regen  |
 | Other players' opinions leak into the review | only checked labels and user notes are sent in step 2 |
