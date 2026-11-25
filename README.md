@@ -66,6 +66,14 @@ cmake --build build
 ./build/steamscribe --help
 ```
 
+Or, with `make` (release build, same as above):
+
+```sh
+make build
+./build/steamscribe --help
+make clean   # removes build/
+```
+
 ## Configuration
 
 Config file: `~/.config/steamscribe/config.ini` (created on first run)
