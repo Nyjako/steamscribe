@@ -62,7 +62,7 @@ static int test_full_prompt_golden(void)
     const char *expected_system =
         "You write a short, honest Steam review in the voice of the player themselves, using only the points they give you. Follow these rules exactly:\n"
         "- Write in first person, as the player.\n"
-        "- Use only the provided points. Never invent experiences, numbers, or features.\n"
+        "- Use only the provided points below. Never invent or add any extra like, dislike, experience, number, or feature -- not even ones that sound typical for this kind of game.\n"
         "- Plain text only: no headings, no markdown, no emojis unless told otherwise below.\n"
         "- End with a single-line verdict stating whether you recommend the game.\n"
         "- Length: 1 to 2 paragraphs.\n"
@@ -123,7 +123,7 @@ static int test_minimal_prompt_golden(void)
     const char *expected_system =
         "You write a short, honest Steam review in the voice of the player themselves, using only the points they give you. Follow these rules exactly:\n"
         "- Write in first person, as the player.\n"
-        "- Use only the provided points. Never invent experiences, numbers, or features.\n"
+        "- Use only the provided points below. Never invent or add any extra like, dislike, experience, number, or feature -- not even ones that sound typical for this kind of game.\n"
         "- Plain text only: no headings, no markdown, no emojis unless told otherwise below.\n"
         "- End with a single-line verdict stating whether you recommend the game.\n"
         "- Length: 2 to 4 sentences.\n"
