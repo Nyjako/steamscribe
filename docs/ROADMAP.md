@@ -84,7 +84,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 ## M5 – Polish
 **Goal:** feels finished.
 
-- [ ] Worker thread plus animated spinner during fetch, analyze and generate
+- [x] Worker thread plus animated spinner during fetch, analyze and generate (pulled forward into M4 once local-model inference turned out slow enough on CPU to need it)
 - [ ] Copy to clipboard (OSC 52, fallback to `wl-copy` / `xclip` / `pbcopy`)
 - [ ] Edit in `$EDITOR`, then return to the result screen
 - [ ] Save review to `~/.local/share/steamscribe/reviews/`
