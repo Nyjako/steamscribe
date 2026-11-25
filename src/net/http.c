@@ -84,7 +84,7 @@ static int perform_with_retry(CURL *curl, const http_cfg_t *cfg, const char *url
     {
         char *redirect_url = NULL;
         curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &redirect_url);
-        err_set(err, (int)status, "HTTP %ld from %s, redirected to %s -- the request was likely blocked rather than reaching the API", status, url, redirect_url ? redirect_url : "(unknown)");
+        err_set(err, (int)status, "HTTP %ld, redirected to %s -- the request was likely blocked rather than reaching the API", status, redirect_url ? redirect_url : "(unknown)");
         return -1;
     }
 

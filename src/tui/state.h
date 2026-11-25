@@ -13,7 +13,7 @@
 
 #define TUI_SEARCH_INPUT_CAP 128
 #define TUI_NOTES_INPUT_CAP 512
-#define TUI_STATUS_CAP 256
+#define TUI_STATUS_CAP 512 /* matches err_t.msg so a wrapped err.msg never gets truncated again here */
 #define TUI_SETTINGS_MODEL_CAP 128
 #define TUI_SETTINGS_URL_CAP 256
 #define TUI_SETTINGS_NUM_CTX_CAP 16

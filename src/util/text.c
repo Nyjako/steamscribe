@@ -37,6 +37,30 @@ char **text_wrap(arena_t *arena, const char *text, int width, size_t *out_count)
             size_t word_len = i - word_start;
             if (word_len == 0) continue;
 
+            if (word_len > (size_t)width)
+            {
+                /* The word alone doesn't fit on any line (e.g. a long URL in
+                 * an error message): flush what's pending, then hard-break
+                 * the word itself into width-sized chunks. A rendered line
+                 * wider than the terminal just gets silently clipped with no
+                 * sign there was more, which is worse than a mid-word break. */
+                if (current.len > 0)
+                {
+                    line_ptr_array_push(&lines, arena_strndup(arena, strbuf_cstr(&current), current.len));
+                    strbuf_clear(&current);
+                }
+
+                size_t offset = 0;
+                while (offset < word_len)
+                {
+                    size_t chunk = word_len - offset < (size_t)width ? word_len - offset : (size_t)width;
+                    line_ptr_array_push(&lines, arena_strndup(arena, para_start + word_start + offset, chunk));
+                    offset += chunk;
+                }
+
+                continue;
+            }
+
             size_t needed = word_len + (current.len > 0 ? 1 : 0);
             if (current.len > 0 && current.len + needed > (size_t)width)
             {

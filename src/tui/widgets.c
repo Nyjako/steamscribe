@@ -11,10 +11,21 @@ void widgets_draw_header(int y, const char *text)
     tb_print(2, y, TB_DEFAULT | TB_BOLD, TB_DEFAULT, text);
 }
 
-void widgets_draw_status_bar(const char *text)
+#define STATUS_BAR_MAX_LINES 6
+
+void widgets_draw_status_bar(arena_t *arena, const char *text)
 {
     if (!text || !text[0]) return;
-    tb_print(2, tb_height() - 1, TB_WHITE, TB_RED, text);
+
+    int width = tb_width() - 4;
+    if (width < 1) width = 1;
+
+    size_t count = 0;
+    char **lines = text_wrap(arena, text, width, &count);
+    if (count > STATUS_BAR_MAX_LINES) count = STATUS_BAR_MAX_LINES;
+
+    int start_y = tb_height() - (int)count;
+    for (size_t i = 0; i < count; i++) tb_print(2, start_y + (int)i, TB_WHITE, TB_RED, lines[i]);
 }
 
 void widgets_draw_search_results(int y, const steam_search_results_t *results, size_t cursor)

@@ -53,13 +53,13 @@ static void draw(app_state_t *state, char spinner_ch)
         case TUI_SCREEN_SEARCH:
             widgets_draw_header(1, "steamscribe -- search for a game (F2 for settings)");
             widgets_draw_text_input(3, "Game name >", state->search_input);
-            widgets_draw_status_bar(state->status);
+            widgets_draw_status_bar(state->arena, state->status);
             break;
 
         case TUI_SCREEN_SELECT:
             widgets_draw_header(1, "Pick a game (Enter), Esc to search again, q to quit");
             widgets_draw_search_results(3, &state->search_results, state->select_cursor);
-            widgets_draw_status_bar(state->status);
+            widgets_draw_status_bar(state->arena, state->status);
             break;
 
         case TUI_SCREEN_LOADING_GAME:
@@ -109,7 +109,7 @@ static void draw(app_state_t *state, char spinner_ch)
         case TUI_SCREEN_RESULT:
             widgets_draw_header(1, "Your review -- (r) regenerate, (q) quit");
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
-            widgets_draw_status_bar(state->status);
+            widgets_draw_status_bar(state->arena, state->status);
             break;
 
         case TUI_SCREEN_SETTINGS:
@@ -124,7 +124,7 @@ static void draw(app_state_t *state, char spinner_ch)
 
             tb_print(2, 8, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
             tb_print(2, 9, TB_DEFAULT, TB_DEFAULT, "API keys come only from ANTHROPIC_API_KEY / OPENAI_API_KEY -- not editable here.");
-            widgets_draw_status_bar(state->status);
+            widgets_draw_status_bar(state->arena, state->status);
             break;
         }
 
