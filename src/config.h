@@ -9,12 +9,14 @@
 typedef struct config_t
 {
     /* [llm] */
-    char *llm_provider;       /* "anthropic" | "openai" | "fake" */
+    char *llm_provider;       /* "anthropic" | "openai" | "ollama" | "fake" */
     char *llm_model;
-    char *llm_base_url;       /* openai-compatible only; empty => OpenAI's default endpoint.
-                                * Point this at a local server (e.g. http://localhost:11434/v1
-                                * for Ollama, or LM Studio's endpoint) to use a local model --
-                                * no API key is required in that case. */
+    char *llm_base_url;       /* openai/ollama only; empty => that provider's default endpoint.
+                                * For "openai", point this at a local server (e.g. LM Studio's
+                                * endpoint) to use a local model -- no API key is required in
+                                * that case. "ollama" defaults to http://localhost:11434 and
+                                * talks to Ollama's own API, not the OpenAI-compatible one. */
+    int llm_num_ctx;          /* ollama only; 0 => let Ollama use the model's own default */
 
     /* API keys, read only from the environment, never from the config file. */
     char *anthropic_api_key;  /* ANTHROPIC_API_KEY, may be empty */

@@ -41,7 +41,7 @@ $ steamscribe valheim
 - Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes
 - Generates a review in your chosen length and tone, using **only the points you confirmed**
 - Copy to clipboard, edit in `$EDITOR`, regenerate, or save locally
-- Works with Anthropic or any OpenAI-compatible API, including local models through Ollama or LM Studio
+- Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
 - Caches Steam data so it doesn't hammer Steam's servers
 
 ## Requirements
@@ -80,9 +80,13 @@ Config file: `~/.config/steamscribe/config.ini` (created on first run)
 
 ```ini
 [llm]
-provider = anthropic          ; anthropic | openai
+provider = anthropic          ; anthropic | openai | ollama
 model    = claude-haiku-5-5
-; base_url = http://localhost:11434/v1   ; for Ollama / LM Studio (provider = openai)
+; base_url = http://localhost:1234/v1   ; for LM Studio (provider = openai)
+; For a local Ollama model instead, use provider = ollama -- it talks to
+; Ollama's own API (not the OpenAI-compatible one), so it can set num_ctx
+; and force valid JSON output, and defaults to http://localhost:11434.
+; num_ctx  = 8192               ; ollama only -- raise this if reviews get truncated
 
 [steam]
 language    = english

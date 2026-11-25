@@ -27,6 +27,7 @@ static int test_defaults_and_env_key(void)
     TEST_ASSERT(cfg.steam_review_count == 200);
     TEST_ASSERT(cfg.steam_cache_ttl_hours == 24);
     TEST_ASSERT(strcmp(cfg.review_default_length, "short") == 0);
+    TEST_ASSERT(cfg.llm_num_ctx == 8192);
     TEST_ASSERT(strcmp(cfg.anthropic_api_key, "test-key-123") == 0);
     TEST_ASSERT(strcmp(cfg.openai_api_key, "") == 0);
 
@@ -53,7 +54,7 @@ static int test_reads_existing_values(void)
     snprintf(path, sizeof(path), "%s/config.ini", dir);
     FILE *fp = fopen(path, "w");
     TEST_ASSERT(fp != NULL);
-    fputs("[llm]\nprovider = openai\nmodel = llama3\nbase_url = http://localhost:11434/v1\n", fp);
+    fputs("[llm]\nprovider = ollama\nmodel = llama3\nbase_url = http://localhost:11434\nnum_ctx = 16384\n", fp);
     fclose(fp);
 
     char config_home[512];
@@ -68,9 +69,10 @@ static int test_reads_existing_values(void)
     int rc = config_load(&arena, &cfg, &err);
 
     TEST_ASSERT(rc == 0);
-    TEST_ASSERT(strcmp(cfg.llm_provider, "openai") == 0);
+    TEST_ASSERT(strcmp(cfg.llm_provider, "ollama") == 0);
     TEST_ASSERT(strcmp(cfg.llm_model, "llama3") == 0);
-    TEST_ASSERT(strcmp(cfg.llm_base_url, "http://localhost:11434/v1") == 0);
+    TEST_ASSERT(strcmp(cfg.llm_base_url, "http://localhost:11434") == 0);
+    TEST_ASSERT(cfg.llm_num_ctx == 16384);
 
     arena_free(&arena);
     return 0;

@@ -176,6 +176,7 @@ static int test_generate_uses_fake_provider(void)
     cfg.model = "fake-model";
     cfg.base_url = "";
     cfg.api_key = "";
+    cfg.num_ctx = 0;
 
     char *text = NULL;
     err_t err;

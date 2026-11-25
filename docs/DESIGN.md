@@ -74,19 +74,22 @@ All endpoints are public JSON. No key is needed.
 Two calls per review.
 
 ### 4.1 Theme extraction
-Input: game name, short description, genres, the sampled positive and negative reviews.
-Output (strict JSON):
+Two calls, not one: liked themes are extracted from only the positive reviews, disliked
+themes from only the negative ones, each capped to 60 reviews, then merged. This keeps
+each prompt small (good for small-context local models) and lets a schema-capable
+provider constrain each call to a simple, single-key shape:
 
 ```json
-{
-  "liked":    [ { "id": "art",      "label": "Art style & lighting" } ],
-  "disliked": [ { "id": "raids",    "label": "Annoying enemy raids" } ]
-}
+{ "liked":    [ { "id": "art",      "label": "Art style & lighting" } ] }
+{ "disliked": [ { "id": "raids",    "label": "Annoying enemy raids" } ] }
 ```
 
-Rules in prompt: 5–8 items per side, short labels (≤ 4 words), most common first, no duplicates, JSON only.
+Rules in prompt: 5–8 items, short labels (≤ 4 words), most common first, no duplicates,
+JSON only.
 
-Parsing: strip ```` ``` ```` fences if present and parse with cJSON. On failure, retry once with "return only valid JSON". On a second failure, show an error with the raw output in a debug log.
+Parsing: strip ```` ``` ```` fences if present and parse with cJSON. On failure, retry
+that side once with "return only valid JSON". On a second failure, show an error with the
+raw output in a debug log.
 
 ### 4.2 Review generation
 Input: game name, **only the checked labels**, the user's free-text notes, recommend yes/no, length, tone.
@@ -97,7 +100,8 @@ System prompt rules:
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
 
 ### 4.3 Providers
-A small vtable so backends are swappable:
+A small vtable so backends are swappable, with an optional second entry point for
+providers that can enforce a JSON schema server-side:
 
 ```c
 typedef struct {
@@ -105,11 +109,16 @@ typedef struct {
     int (*complete)(const llm_cfg *cfg,
                     const char *system, const char *user,
                     strbuf *out, err_t *err);
+    int (*complete_json)(const llm_cfg *cfg,            /* optional; NULL if unsupported */
+                          const char *system, const char *user,
+                          const char *json_schema,
+                          strbuf *out, err_t *err);
 } llm_provider;
 ```
 
-- **anthropic**: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key`, `anthropic-version: 2023-06-01`, read `content[0].text`.
-- **openai** (compatible): `POST <base_url>/chat/completions`, `Authorization: Bearer`, read `choices[0].message.content`. Covers OpenAI, Ollama, LM Studio, OpenRouter, and others.
+- **anthropic**: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key`, `anthropic-version: 2023-06-01`, read `content[0].text`. No `complete_json`.
+- **openai** (compatible): `POST <base_url>/chat/completions`, `Authorization: Bearer`, read `choices[0].message.content`. Covers OpenAI, LM Studio, OpenRouter, and others. No `complete_json`.
+- **ollama**: Ollama's *native* API, not the OpenAI-compatible one -- `POST <base_url>/api/chat` (default `http://localhost:11434`), `stream: false`, `think: false` (skips `<think>` stripping for reasoning-style models), an `options.num_ctx` from config, and `complete_json` sets `format` to the call's JSON schema so most parse failures never happen server-side. Local CPU inference can be slow, so this provider uses a longer (180s) request timeout than the shared default.
 
 ---
 
@@ -180,8 +189,13 @@ typedef struct {
 Use one **arena per session**. All Steam data, parsed JSON copies, and prompts are allocated from it and freed together on exit or "new game". This avoids most `free()` bookkeeping, which is the main pain point of doing this in C.
 
 ### 5.3 Concurrency
-- **MVP:** blocking calls with a static "Loading…" message.
-- **Later:** one worker `pthread` runs fetch, analyze and generate. The UI thread polls a mutex-guarded status struct and animates a spinner. The UI thread never touches the network.
+A worker `pthread` runs each Loading screen's fetch/extract/generate step (pulled forward
+from the original M5 plan once local-model inference turned out slow enough on CPU that a
+frozen, un-interruptible "Loading…" screen wasn't acceptable). The UI thread polls a
+mutex-guarded `done` flag, animates a spinner, and stays responsive to Ctrl+C; it never
+touches the network or the LLM itself. Only the background thread allocates from the
+session arena while it runs -- the UI thread only reads fields the job hasn't filled in
+yet -- so this works without making the arena allocator itself thread-safe.
 
 ### 5.4 Errors
 Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`. The TUI shows `msg` in a status bar. `--verbose` writes HTTP and LLM traffic to `~/.cache/steamscribe/debug.log`, with API keys redacted.
