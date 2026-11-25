@@ -204,6 +204,18 @@ static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16
         return TUI_ACTION_NONE;
     }
 
+    if (ch == 'm' && count > 0)
+    {
+        if (is_liked_side) themes_move_item(state->arena, &state->themes.liked, &state->themes.n_liked, &state->themes.disliked, &state->themes.n_disliked, *cursor);
+        else themes_move_item(state->arena, &state->themes.disliked, &state->themes.n_disliked, &state->themes.liked, &state->themes.n_liked, *cursor);
+
+        size_t new_count = is_liked_side ? state->themes.n_liked : state->themes.n_disliked;
+        if (new_count == 0) *cursor = 0;
+        else if (*cursor >= new_count) *cursor = new_count - 1;
+
+        return TUI_ACTION_NONE;
+    }
+
     if (key == TUI_KEY_ENTER)
     {
         state->screen = next_screen;
@@ -489,6 +501,22 @@ static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
     {
         state->screen = TUI_SCREEN_LOADING_REVIEW;
         return TUI_ACTION_GENERATE_REVIEW;
+    }
+
+    if (ch == 'e')
+    {
+        return TUI_ACTION_EDIT_REVIEW;
+    }
+
+    if (ch == 'o')
+    {
+        /* Back through Liked/Disliked/Notes with everything you answered
+         * last time still in place -- for fixing a wrong like/dislike or
+         * just wanting a different length/tone/vocab, without starting
+         * the whole checklist over from what the AI extracted. */
+        adding_item_reset(state);
+        state->screen = TUI_SCREEN_LIKED;
+        return TUI_ACTION_NONE;
     }
 
     return TUI_ACTION_NONE;

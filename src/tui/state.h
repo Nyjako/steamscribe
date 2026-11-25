@@ -58,6 +58,7 @@ typedef enum
     TUI_ACTION_LOAD_GAME,       /* fetch game info + themes for state->appid */
     TUI_ACTION_GENERATE_REVIEW, /* call the LLM with state's notes/recommend/length/tone */
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
+    TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
 } tui_action_t;
 
 typedef struct app_state_t

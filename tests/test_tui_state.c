@@ -428,6 +428,101 @@ static int test_checklist_add_blank_item_is_noop(void)
     return 0;
 }
 
+static int test_checklist_move_item_to_other_side(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    theme_set_t themes = make_game_themes(&arena);
+    tui_apply_game_loaded(&state, 892970, game, themes);
+
+    TEST_ASSERT(state.themes.n_liked == 2);
+    TEST_ASSERT(state.themes.n_disliked == 1);
+
+    /* Mark "Building system" as something YOU actually want included, then
+     * realize it's filed on the wrong side and move it over. */
+    tui_handle_key(&state, ' ', 0);
+    TEST_ASSERT(tui_handle_key(&state, 'm', 0) == TUI_ACTION_NONE);
+
+    TEST_ASSERT(state.themes.n_liked == 1);
+    TEST_ASSERT(strcmp(state.themes.liked[0].label, "Co-op with friends") == 0);
+
+    TEST_ASSERT(state.themes.n_disliked == 2);
+    TEST_ASSERT(strcmp(state.themes.disliked[1].label, "Building system") == 0);
+    TEST_ASSERT(state.themes.disliked[1].checked); /* the checked flag moved with it */
+
+    /* cursor clamped back into range on the now-shorter liked list */
+    TEST_ASSERT(state.liked_cursor == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_checklist_move_last_item_clamps_cursor(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    theme_set_t themes = make_game_themes(&arena);
+    tui_apply_game_loaded(&state, 892970, game, themes);
+
+    tui_handle_key(&state, 'j', 0); /* cursor to index 1, the last liked item */
+    TEST_ASSERT(state.liked_cursor == 1);
+
+    tui_handle_key(&state, 'm', 0);
+    TEST_ASSERT(state.themes.n_liked == 1);
+    TEST_ASSERT(state.liked_cursor == 0); /* clamped down, not left dangling at 1 */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_result_screen_edit_action(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 'e', 0) == TUI_ACTION_EDIT_REVIEW);
+    TEST_ASSERT(state.screen == TUI_SCREEN_RESULT); /* app.c handles the actual edit, not state.c */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_result_screen_change_answers_goes_to_liked(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 'o', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIKED);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_result_screen_regenerate_and_quit(void)
 {
     arena_t arena;
@@ -744,8 +839,12 @@ int main(void)
     if (test_checklist_add_custom_item()) return 1;
     if (test_checklist_add_custom_item_esc_cancels()) return 1;
     if (test_checklist_add_blank_item_is_noop()) return 1;
+    if (test_checklist_move_item_to_other_side()) return 1;
+    if (test_checklist_move_last_item_clamps_cursor()) return 1;
     if (test_notes_flow_to_generate_review()) return 1;
     if (test_vocab_step_esc_goes_back_to_length()) return 1;
+    if (test_result_screen_edit_action()) return 1;
+    if (test_result_screen_change_answers_goes_to_liked()) return 1;
     if (test_result_screen_regenerate_and_quit()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;
     if (test_review_failed_lands_on_result_with_status()) return 1;
