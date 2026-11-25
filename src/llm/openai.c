@@ -90,4 +90,4 @@ static int openai_complete(const llm_cfg_t *cfg, const char *system, const char 
     return 0;
 }
 
-const llm_provider_t llm_provider_openai = {"openai", openai_complete};
+const llm_provider_t llm_provider_openai = {"openai", openai_complete, NULL};

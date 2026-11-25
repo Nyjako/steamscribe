@@ -51,4 +51,4 @@ static int fake_complete(const llm_cfg_t *cfg, const char *system, const char *u
     return 0;
 }
 
-const llm_provider_t llm_provider_fake = {"fake", fake_complete};
+const llm_provider_t llm_provider_fake = {"fake", fake_complete, NULL};
