@@ -497,6 +497,11 @@ static int test_notes_flow_to_generate_review(void)
 
     tui_handle_key(&state, 'y', 0);
     TEST_ASSERT(state.recommend == true);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_RATING);
+
+    tui_handle_key(&state, '8', 0);
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.rating == 8);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
 
     TEST_ASSERT(tui_handle_key(&state, 'm', 0) == TUI_ACTION_NONE);
@@ -506,6 +511,41 @@ static int test_notes_flow_to_generate_review(void)
     TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_GENERATE_REVIEW);
     TEST_ASSERT(state.vocab == REVIEW_VOCAB_SIMPLE);
     TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_REVIEW);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_rating_step_esc_and_blank_skip(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_RATING;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_RECOMMEND);
+
+    /* a blank rating just means "no rating given" -- Enter still advances */
+    state.notes_step = TUI_NOTES_STEP_RATING;
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.rating == 0);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
+
+    /* a rating above 10 is clamped rather than rejected outright */
+    state.notes_step = TUI_NOTES_STEP_RATING;
+    state.rating_input[0] = '\0';
+    state.rating_input_len = 0;
+    state.rating_input_cursor = 0;
+    tui_handle_key(&state, '9', 0);
+    tui_handle_key(&state, '9', 0);
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.rating == 10);
 
     arena_free(&arena);
     return 0;
@@ -1161,6 +1201,7 @@ int main(void)
     if (test_notes_text_esc_returns_to_last_followup_question_when_any()) return 1;
     if (test_notes_text_esc_goes_to_disliked_when_no_followup()) return 1;
     if (test_notes_flow_to_generate_review()) return 1;
+    if (test_rating_step_esc_and_blank_skip()) return 1;
     if (test_vocab_step_esc_goes_back_to_length()) return 1;
     if (test_result_screen_edit_action()) return 1;
     if (test_result_screen_copy_action()) return 1;

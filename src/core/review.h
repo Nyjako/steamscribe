@@ -35,6 +35,7 @@ typedef struct review_request_t
     const theme_set_t *themes; /* only entries with checked == true are used */
     const char *notes;         /* free text, may be empty */
     bool recommend;
+    int rating;                /* 0 = none given; else 1-10 */
     review_len_t length;
     review_tone_t tone;
     review_vocab_t vocab;

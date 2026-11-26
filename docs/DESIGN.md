@@ -157,7 +157,7 @@ into the review prompt (see 4.3), as a `- <question> <answer>` line each, under 
 about my experience:" heading that's left out entirely if nothing was answered.
 
 ### 4.3 Review generation
-Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, length, tone, vocabulary.
+Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, an optional 1-10 rating, length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
 - Use only the provided points below. Never invent or add any extra like, dislike,
@@ -166,6 +166,13 @@ System prompt rules:
   unchecked, genre-typical complaint on its own).
 - Short = 2–4 sentences. Medium = 1–2 paragraphs. Long = 3–4 paragraphs.
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
+- Rating: a new optional step right after Recommend, in both the TUI and `--plain` --
+  blank/Enter skips it (same "Enter skips" convention used elsewhere), otherwise 1-10,
+  clamped rather than rejected if someone types e.g. "99". When given, one extra system
+  rule tells the model to work "(N/10)" into the closing verdict line exactly as given --
+  phrased as strongly as the "never invent a number" rule above, for the same reason: it's
+  still a number in the prompt, and the model shouldn't feel free to round it or restate
+  it differently.
 - Vocabulary: "normal" adds no extra line; "simple" adds one telling the model to use
   plain, everyday words and avoid fancy or technical vocabulary. Picked per review, right
   after length, in both the TUI and `--plain`; defaults from `[review] default_vocab`.

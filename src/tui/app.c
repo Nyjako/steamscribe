@@ -168,6 +168,13 @@ static void draw(app_state_t *state, char spinner_ch)
                 tb_printf(2, next_y, TB_DEFAULT, TB_DEFAULT, "Recommend it? (y/n) > %s", answer);
             }
 
+            if (state->notes_step == TUI_NOTES_STEP_RATING)
+            {
+                const char *prefix = "Rating 1-10, optional (Enter skips) > ";
+                tb_printf(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "%s%s", prefix, state->rating_input);
+                tb_set_cursor(2 + (int)strlen(prefix) + (int)state->rating_input_cursor, next_y + 1);
+            }
+
             if (state->notes_step == TUI_NOTES_STEP_LENGTH)
             {
                 tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Length: (s)hort / (m)edium / (l)ong >");
@@ -345,6 +352,7 @@ static void *bg_generate_review_thread(void *argp)
         req.themes = &ctx->state->themes;
         req.notes = ctx->state->notes_input;
         req.recommend = ctx->state->recommend;
+        req.rating = ctx->state->rating;
         req.length = ctx->state->length;
         req.tone = ctx->state->tone;
         req.vocab = ctx->state->vocab;

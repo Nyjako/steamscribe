@@ -41,6 +41,7 @@ typedef enum
     TUI_NOTES_STEP_FOLLOWUP,
     TUI_NOTES_STEP_TEXT,
     TUI_NOTES_STEP_RECOMMEND,
+    TUI_NOTES_STEP_RATING,
     TUI_NOTES_STEP_LENGTH,
     TUI_NOTES_STEP_VOCAB,
 } tui_notes_step_t;
@@ -112,6 +113,10 @@ typedef struct app_state_t
     size_t notes_input_cursor;
     tui_notes_step_t notes_step;
     bool recommend;
+    char rating_input[3]; /* "0".."10", blank means no rating given */
+    size_t rating_input_len;
+    size_t rating_input_cursor;
+    int rating; /* 0 = none, else 1-10; parsed from rating_input on continue */
     review_len_t length;
     review_tone_t tone;
     review_vocab_t vocab;
