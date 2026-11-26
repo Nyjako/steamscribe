@@ -218,6 +218,16 @@ static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16
 
     if (key == TUI_KEY_ENTER)
     {
+        if (!is_liked_side)
+        {
+            /* After Disliked, ask the LLM for a few optional follow-up
+             * questions tailored to what's actually checked, before the
+             * free-text notes step. Best-effort -- a failure here just
+             * means zero questions, handled in tui_apply_followup_failed. */
+            state->screen = TUI_SCREEN_LOADING_FOLLOWUP;
+            return TUI_ACTION_GENERATE_FOLLOWUP;
+        }
+
         state->screen = next_screen;
         return TUI_ACTION_NONE;
     }
@@ -229,10 +239,48 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
 {
     switch (state->notes_step)
     {
+        case TUI_NOTES_STEP_FOLLOWUP:
+            if (key == TUI_KEY_ESC)
+            {
+                if (state->followup_index > 0) state->followup_index--;
+                else state->screen = TUI_SCREEN_DISLIKED;
+                return TUI_ACTION_NONE;
+            }
+            if (key == TUI_KEY_ENTER)
+            {
+                state->followup_index++;
+                if (state->followup_index >= state->n_followup_questions) state->notes_step = TUI_NOTES_STEP_TEXT;
+                return TUI_ACTION_NONE;
+            }
+            if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
+            {
+                size_t *len = &state->followup_answer_len[state->followup_index];
+                if (*len > 0) state->followup_answer[state->followup_index][--(*len)] = '\0';
+                return TUI_ACTION_NONE;
+            }
+            if (is_printable(ch))
+            {
+                size_t *len = &state->followup_answer_len[state->followup_index];
+                if (*len + 1 < sizeof(state->followup_answer[0]))
+                {
+                    state->followup_answer[state->followup_index][(*len)++] = (char)ch;
+                    state->followup_answer[state->followup_index][*len] = '\0';
+                }
+            }
+            return TUI_ACTION_NONE;
+
         case TUI_NOTES_STEP_TEXT:
             if (key == TUI_KEY_ESC)
             {
-                state->screen = TUI_SCREEN_DISLIKED;
+                if (state->n_followup_questions > 0)
+                {
+                    state->followup_index = state->n_followup_questions - 1;
+                    state->notes_step = TUI_NOTES_STEP_FOLLOWUP;
+                }
+                else
+                {
+                    state->screen = TUI_SCREEN_DISLIKED;
+                }
                 return TUI_ACTION_NONE;
             }
             if (key == TUI_KEY_ENTER)
@@ -560,6 +608,7 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
             return handle_settings_key(state, ch, key);
 
         case TUI_SCREEN_LOADING_GAME:
+        case TUI_SCREEN_LOADING_FOLLOWUP:
         case TUI_SCREEN_LOADING_REVIEW:
         case TUI_SCREEN_QUIT:
         default:
@@ -604,6 +653,9 @@ void tui_apply_game_loaded(app_state_t *state, uint32_t appid, game_info_t game,
     state->liked_cursor = 0;
     state->disliked_cursor = 0;
     adding_item_reset(state);
+    state->followup_questions = NULL;
+    state->n_followup_questions = 0;
+    state->followup_index = 0;
     state->status[0] = '\0';
     state->screen = TUI_SCREEN_LIKED;
 }
@@ -612,6 +664,36 @@ void tui_apply_game_load_failed(app_state_t *state, const char *message)
 {
     snprintf(state->status, sizeof(state->status), "Could not load game: %s", message);
     state->screen = TUI_SCREEN_SEARCH;
+}
+
+void tui_apply_followup_generated(app_state_t *state, char **questions, size_t count)
+{
+    if (count > FOLLOWUP_MAX_QUESTIONS) count = FOLLOWUP_MAX_QUESTIONS;
+
+    state->followup_questions = questions;
+    state->n_followup_questions = count;
+    state->followup_index = 0;
+
+    for (size_t i = 0; i < FOLLOWUP_MAX_QUESTIONS; i++)
+    {
+        state->followup_answer[i][0] = '\0';
+        state->followup_answer_len[i] = 0;
+    }
+
+    state->notes_step = (count > 0) ? TUI_NOTES_STEP_FOLLOWUP : TUI_NOTES_STEP_TEXT;
+    state->screen = TUI_SCREEN_NOTES;
+}
+
+void tui_apply_followup_failed(app_state_t *state)
+{
+    /* Best-effort, optional feature: on failure, skip straight to the
+     * free-text notes step instead of surfacing an error for something
+     * that was never required to begin with. */
+    state->followup_questions = NULL;
+    state->n_followup_questions = 0;
+    state->followup_index = 0;
+    state->notes_step = TUI_NOTES_STEP_TEXT;
+    state->screen = TUI_SCREEN_NOTES;
 }
 
 void tui_apply_review_generated(app_state_t *state, char *review_text)
