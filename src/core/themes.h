@@ -25,14 +25,14 @@ typedef struct theme_set_t
 } theme_set_t;
 
 /* Builds the system/user prompt for extracting just one side (liked when
- * is_liked_side, disliked otherwise) from only that side's reviews, capped
- * to a sane count per call -- good for small-context local models. When
- * `num_ctx` is set (ollama only; pass 0/cfg->num_ctx for other providers),
- * reviews are also trimmed by total length so the prompt can't overflow
- * that context window regardless of how verbose this particular game's
- * reviews happen to be -- a game with long, BBCode-heavy reviews could
- * otherwise build a prompt the model rejects outright. Both output strings
- * are arena-allocated. Pure (no network), safe to test. */
+ * is_liked_side, disliked otherwise) from only that side's reviews, trimmed
+ * by total length to a character budget derived from `num_ctx` (ollama
+ * only; pass 0/cfg->num_ctx for other providers, which fall back to a
+ * generous fixed budget) -- so the prompt can't overflow a local model's
+ * context window, nor balloon without bound on a cloud provider, regardless
+ * of how many reviews `review_count` in Settings asked for or how verbose
+ * this particular game's reviews happen to be. Both output strings are
+ * arena-allocated. Pure (no network), safe to test. */
 void themes_build_side_prompt(arena_t *arena, const game_info_t *game, const review_set_t *reviews, bool is_liked_side, int num_ctx, char **out_system, char **out_user);
 
 /* Parses the LLM's single-side response (shape {"liked":[...]} or
