@@ -17,10 +17,31 @@
 #include "tui/state.h"
 #include "tui/widgets.h"
 
+/* Set once tui_run() has a live app_state_t, so a fatal signal's handler
+ * (which gets no arguments of its own) can still recover whatever status
+ * or error text was last shown, and print it after the terminal is
+ * restored instead of just losing it along with the alternate screen. */
+static app_state_t *g_signal_state = NULL;
+
 static void handle_fatal_signal(int sig)
 {
     tb_shutdown();
+    if (g_signal_state && g_signal_state->status[0] != '\0')
+    {
+        size_t len = strlen(g_signal_state->status);
+        (void)write(STDERR_FILENO, g_signal_state->status, len);
+        (void)write(STDERR_FILENO, "\n", 1);
+    }
     _exit(128 + sig);
+}
+
+/* Prints whatever's currently in the status bar to stderr, so an error
+ * shown there (e.g. "Could not load game: ...") survives past the TUI
+ * tearing down the alternate screen -- whether the app exits normally or
+ * the user Ctrl+C's out of it. A no-op when the status is just empty. */
+static void flush_pending_status(const app_state_t *state)
+{
+    if (state->status[0] != '\0') fprintf(stderr, "%s\n", state->status);
 }
 
 static void install_signal_handlers(void)
@@ -544,6 +565,7 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
         if (tb_peek_event(&ev, 120) == TB_OK && ev.type == TB_EVENT_KEY && ev.key == TUI_KEY_CTRL_C)
         {
             tb_shutdown();
+            flush_pending_status(state);
             _exit(130);
         }
     }
@@ -582,6 +604,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
 
     app_state_t state;
     tui_state_init(&state, arena, cfg, options->initial_query, options->initial_appid);
+    g_signal_state = &state;
 
     while (state.screen != TUI_SCREEN_QUIT)
     {
@@ -610,5 +633,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
     }
 
     tb_shutdown();
+    g_signal_state = NULL;
+    flush_pending_status(&state);
     return 0;
 }

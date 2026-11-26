@@ -298,6 +298,15 @@ yet -- so this works without making the arena allocator itself thread-safe.
 ### 5.4 Errors
 Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`. The TUI shows `msg` in a status bar. `--verbose` writes HTTP and LLM traffic to `~/.cache/steamscribe/debug.log`, with API keys redacted.
 
+Whatever's currently in the status bar is also flushed to stderr once the terminal tears
+down -- on a normal quit, on Ctrl+C mid-loading screen, and on a fatal signal (`SIGINT`/
+`SIGTERM`/`SIGHUP`/`SIGQUIT`). Without this, an error like "Could not load game: ..." was
+only ever visible on the alternate screen the TUI was using, so leaving the app via
+Ctrl+C (the obvious reflex when something's gone wrong) wiped it along with everything
+else. The signal handler has no arguments of its own, so `tui_run()` keeps a static
+pointer (`g_signal_state`) to the live `app_state_t` for it to read; it writes with the
+raw `write()` syscall rather than `fprintf`, since stdio buffering isn't async-signal-safe.
+
 ### 5.5 Text input and the cursor
 Every editable field (search, custom checklist items, notes, follow-up answers, Settings)
 is a `text_field_t { char *buf; size_t cap; size_t *len; size_t *cursor; }`, and
