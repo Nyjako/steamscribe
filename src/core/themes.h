@@ -58,4 +58,10 @@ char *themes_to_json(const theme_set_t *themes);
  * review, not to what themes_extract returns. */
 void themes_add_custom_item(arena_t *arena, theme_t **items, size_t *count, const char *label);
 
+/* Moves the item at `index` from the from side to the end of the to side,
+ * preserving its id/label/checked state -- for when
+ * the AI filed something under the wrong side of a user's actual opinion.
+ * A no-op if `index` is out of range. */
+void themes_move_item(arena_t *arena, theme_t **from_items, size_t *from_count, theme_t **to_items, size_t *to_count, size_t index);
+
 #endif

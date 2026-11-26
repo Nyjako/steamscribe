@@ -43,7 +43,7 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
 
     strbuf_append_cstr(&system, "You write a short, honest Steam review in the voice of the player themselves, using only the points they give you. Follow these rules exactly:\n");
     strbuf_append_cstr(&system, "- Write in first person, as the player.\n");
-    strbuf_append_cstr(&system, "- Use only the provided points. Never invent experiences, numbers, or features.\n");
+    strbuf_append_cstr(&system, "- Use only the provided points below. Never invent or add any extra like, dislike, experience, number, or feature -- not even ones that sound typical for this kind of game.\n");
     strbuf_append_cstr(&system, "- Plain text only: no headings, no markdown, no emojis unless told otherwise below.\n");
     strbuf_append_cstr(&system, "- End with a single-line verdict stating whether you recommend the game.\n");
     strbuf_append_fmt(&system, "- Length: %s.\n", length_instruction(req->length));

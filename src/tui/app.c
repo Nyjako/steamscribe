@@ -3,8 +3,10 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <termbox2.h>
 
@@ -69,14 +71,14 @@ static void draw(app_state_t *state, char spinner_ch)
 
         case TUI_SCREEN_LIKED:
             widgets_draw_header(1, state->adding_item ? "Type a new liked item, Enter to add, Esc to cancel"
-                                                        : "What did YOU like? Space toggles, (n) add your own, Enter continues, Esc back, q quits");
+                                                        : "What did YOU like? Space toggles, (n) add your own, (m) move to disliked, Enter continues, Esc back, q quits");
             widgets_draw_checklist(3, state->themes.liked, state->themes.n_liked, state->liked_cursor);
             if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_liked + 1, "New item >", state->custom_item_input);
             break;
 
         case TUI_SCREEN_DISLIKED:
             widgets_draw_header(1, state->adding_item ? "Type a new disliked item, Enter to add, Esc to cancel"
-                                                        : "What bothered you? Space toggles, (n) add your own, Enter continues, Esc back, q quits");
+                                                        : "What bothered you? Space toggles, (n) add your own, (m) move to liked, Enter continues, Esc back, q quits");
             widgets_draw_checklist(3, state->themes.disliked, state->themes.n_disliked, state->disliked_cursor);
             if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_disliked + 1, "New item >", state->custom_item_input);
             break;
@@ -116,7 +118,7 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_RESULT:
-            widgets_draw_header(1, "Your review -- (r) regenerate, (q) quit");
+            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (o) change your answers, (q) quit");
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
             widgets_draw_status_bar(state->arena, state->status);
             break;
@@ -269,6 +271,85 @@ static void do_save_settings(app_state_t *state)
     tui_apply_settings_saved(state);
 }
 
+/* Opens state->review_text in $EDITOR (falling back to "vi"), replacing it
+ * with whatever's in the file afterward. termbox2 has to release the
+ * terminal first -- the editor needs it, same as any other foreground
+ * program would -- and re-init it once the editor exits. Leaves
+ * review_text untouched on any failure. */
+static void do_edit_review(app_state_t *state)
+{
+    char path[] = "/tmp/steamscribe-review-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not edit: could not create a temp file");
+        return;
+    }
+
+    FILE *fp = fdopen(fd, "w");
+    if (fp)
+    {
+        if (state->review_text) fputs(state->review_text, fp);
+        fclose(fp);
+    }
+    else
+    {
+        close(fd);
+    }
+
+    const char *editor = getenv("EDITOR");
+    if (!editor || !editor[0]) editor = "vi";
+
+    char cmd[768];
+    snprintf(cmd, sizeof(cmd), "%s '%s'", editor, path);
+
+    tb_shutdown();
+    int rc = system(cmd);
+    if (tb_init() != 0)
+    {
+        /* Nothing can be safely drawn without a working terminal. */
+        unlink(path);
+        _exit(1);
+    }
+
+    if (rc != 0)
+    {
+        snprintf(state->status, sizeof(state->status), "$EDITOR exited with an error -- review left unchanged");
+        unlink(path);
+        return;
+    }
+
+    fp = fopen(path, "r");
+    if (!fp)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not read back the edited review");
+        unlink(path);
+        return;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (size < 0)
+    {
+        fclose(fp);
+        unlink(path);
+        return;
+    }
+
+    char *buf = (char *)arena_alloc(state->arena, (size_t)size + 1);
+    size_t n = fread(buf, 1, (size_t)size, fp);
+    buf[n] = '\0';
+    fclose(fp);
+    unlink(path);
+
+    while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' ' || buf[n - 1] == '\t')) buf[--n] = '\0';
+
+    state->review_text = buf;
+    state->status[0] = '\0';
+}
+
 static bool bg_result_is_done(bg_result_t *result)
 {
     pthread_mutex_lock(&result->mutex);
@@ -357,6 +438,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         tui_action_t action = tui_handle_key(&state, ev.ch, ev.key);
         if (action == TUI_ACTION_SEARCH) do_search(&state, cfg);
         else if (action == TUI_ACTION_SAVE_SETTINGS) do_save_settings(&state);
+        else if (action == TUI_ACTION_EDIT_REVIEW) do_edit_review(&state);
     }
 
     tb_shutdown();

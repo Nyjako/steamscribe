@@ -280,3 +280,19 @@ void themes_add_custom_item(arena_t *arena, theme_t **items, size_t *count, cons
     *items = grown;
     (*count)++;
 }
+
+void themes_move_item(arena_t *arena, theme_t **from_items, size_t *from_count, theme_t **to_items, size_t *to_count, size_t index)
+{
+    if (index >= *from_count) return;
+
+    theme_t moved = (*from_items)[index];
+    for (size_t i = index; i + 1 < *from_count; i++) (*from_items)[i] = (*from_items)[i + 1];
+    (*from_count)--;
+
+    theme_t *grown = (theme_t *)arena_alloc(arena, (*to_count + 1) * sizeof(theme_t));
+    if (*to_count > 0) memcpy(grown, *to_items, *to_count * sizeof(theme_t));
+    grown[*to_count] = moved;
+
+    *to_items = grown;
+    (*to_count)++;
+}

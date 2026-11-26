@@ -206,14 +206,17 @@ static int resolve_appid_from_query(arena_t *arena, const config_t *cfg, const c
 /* Prints *items as a numbered list under `label` and lets the user check
  * any number of them by typing space-separated numbers, then lets them
  * type their own additional items (comma-separated), appended to *items
- * via themes_add_custom_item and checked by default. */
-static void prompt_checklist(arena_t *arena, const char *label, theme_t **items, size_t *count)
+ * via themes_add_custom_item and checked by default, then offers to move
+ * any of the originally-listed items over to *other_items (e.g. something
+ * filed under "disliked" that's actually a positive for this player). */
+static void prompt_checklist(arena_t *arena, const char *label, const char *other_label, theme_t **items, size_t *count, theme_t **other_items, size_t *other_count)
 {
     printf("\n%s\n", label);
 
-    if (*count > 0)
+    size_t original_count = *count;
+    if (original_count > 0)
     {
-        for (size_t i = 0; i < *count; i++) printf("  %zu) %s\n", i + 1, (*items)[i].label);
+        for (size_t i = 0; i < original_count; i++) printf("  %zu) %s\n", i + 1, (*items)[i].label);
 
         printf("Type the numbers that apply (space-separated), or leave blank > ");
         fflush(stdout);
@@ -225,7 +228,7 @@ static void prompt_checklist(arena_t *arena, const char *label, theme_t **items,
         while (tok)
         {
             size_t idx = (size_t)strtoul(tok, NULL, 10);
-            if (idx >= 1 && idx <= *count) (*items)[idx - 1].checked = true;
+            if (idx >= 1 && idx <= original_count) (*items)[idx - 1].checked = true;
             tok = strtok(NULL, " \t");
         }
     }
@@ -249,6 +252,37 @@ static void prompt_checklist(arena_t *arena, const char *label, theme_t **items,
         if (len > 0) themes_add_custom_item(arena, items, count, tok);
         tok = strtok(NULL, ",");
     }
+
+    if (original_count == 0) return;
+
+    printf("Any of those actually belong under \"%s\" instead? (numbers, space-separated), or leave blank > ", other_label);
+    fflush(stdout);
+
+    char move_line[256];
+    read_line(move_line, sizeof(move_line));
+
+    size_t move_idx[64];
+    size_t n_move = 0;
+    tok = strtok(move_line, " \t");
+    while (tok && n_move < 64)
+    {
+        size_t idx = (size_t)strtoul(tok, NULL, 10);
+        if (idx >= 1 && idx <= original_count) move_idx[n_move++] = idx - 1;
+        tok = strtok(NULL, " \t");
+    }
+
+    /* Descending order so removing one doesn't shift the index of another
+     * still-pending move. */
+    for (size_t i = 0; i < n_move; i++)
+        for (size_t j = i + 1; j < n_move; j++)
+            if (move_idx[j] > move_idx[i])
+            {
+                size_t tmp = move_idx[i];
+                move_idx[i] = move_idx[j];
+                move_idx[j] = tmp;
+            }
+
+    for (size_t i = 0; i < n_move; i++) themes_move_item(arena, items, count, other_items, other_count, move_idx[i]);
 }
 
 static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
@@ -273,8 +307,8 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
         return 1;
     }
 
-    prompt_checklist(arena, "What did YOU like?", &themes.liked, &themes.n_liked);
-    prompt_checklist(arena, "What bothered you?", &themes.disliked, &themes.n_disliked);
+    prompt_checklist(arena, "What did YOU like?", "What bothered you?", &themes.liked, &themes.n_liked, &themes.disliked, &themes.n_disliked);
+    prompt_checklist(arena, "What bothered you?", "What did YOU like?", &themes.disliked, &themes.n_disliked, &themes.liked, &themes.n_liked);
 
     printf("\nAnything else? > ");
     fflush(stdout);

@@ -27,21 +27,21 @@ $ steamscribe valheim
   I really like the art style. It's simple but looks
   beautiful... Recommended, especially for co-op!
   ─────────────────────────────────────────────
-  [c] copy  [e] edit  [r] regenerate  [s] save  [q] quit
+  [c] copy  [e] edit  [r] regenerate  [o] change answers  [s] save  [q] quit
 ```
 
 ## Status
 
-🚧 Early development. The plain-terminal flow shown above (search → read reviews → numbered-list checklist → generated review) works end-to-end as of v0.1 -- the TUI, clipboard/edit/regenerate/save actions, and the checklist layout pictured above are still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
+🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), notes/options, and a generated review you can edit in `$EDITOR` or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look. Clipboard copy and saving to disk are still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
 ## Features (planned)
 
 - Search Steam games by name
 - Fetch game info and player reviews from Steam's public store endpoints, with no Steam account or key needed
 - AI pulls out common likes and dislikes from the reviews
-- Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- and you can add your own items the AI didn't surface
+- Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- add your own items the AI didn't surface, or move one to the other side if the AI guessed your opinion wrong
 - Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
-- Copy to clipboard, edit in `$EDITOR`, regenerate, or save locally
+- Edit the generated review in `$EDITOR`, regenerate, or go back and change your answers -- or copy to clipboard / save locally (still ahead)
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
 - Press **F2** in the TUI to change provider/model/base URL/context size without leaving the app or hand-editing `config.ini`
 - Caches Steam data so it doesn't hammer Steam's servers
