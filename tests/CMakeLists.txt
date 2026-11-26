@@ -87,6 +87,30 @@ target_compile_options(test_text PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_text COMMAND test_text)
 
+add_executable(test_pipeline
+    test_pipeline.c
+    ${CMAKE_SOURCE_DIR}/src/core/pipeline.c
+    ${CMAKE_SOURCE_DIR}/src/core/themes.c
+    ${CMAKE_SOURCE_DIR}/src/llm/llm.c
+    ${CMAKE_SOURCE_DIR}/src/llm/anthropic.c
+    ${CMAKE_SOURCE_DIR}/src/llm/openai.c
+    ${CMAKE_SOURCE_DIR}/src/llm/ollama.c
+    ${CMAKE_SOURCE_DIR}/src/llm/fake.c
+    ${CMAKE_SOURCE_DIR}/src/net/http.c
+    ${CMAKE_SOURCE_DIR}/src/steam/cache.c
+    ${CMAKE_SOURCE_DIR}/src/steam/steam.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c
+    ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
+    ${CMAKE_SOURCE_DIR}/src/util/error.c
+    ${CMAKE_SOURCE_DIR}/src/util/debug_log.c
+    ${CMAKE_SOURCE_DIR}/src/util/json_fence.c
+    ${CMAKE_SOURCE_DIR}/src/util/text.c)
+target_include_directories(test_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${cjson_SOURCE_DIR})
+target_link_libraries(test_pipeline PRIVATE cjson CURL::libcurl goblin)
+target_compile_options(test_pipeline PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_pipeline COMMAND test_pipeline)
+
 add_executable(test_tui_state
     test_tui_state.c
     ${CMAKE_SOURCE_DIR}/src/tui/state.c

@@ -298,6 +298,8 @@ yet -- so this works without making the arena allocator itself thread-safe.
 ### 5.4 Errors
 Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`. The TUI shows `msg` in a status bar. `--verbose` writes HTTP and LLM traffic to `~/.cache/steamscribe/debug.log`, with API keys redacted.
 
+`net/http.c` is the one place every Steam and LLM request goes through, so its error wording is where "offline", "rate-limited" and "bad/missing key" become friendly for every caller at once, instead of each one repeating the same status-code checks: a curl-level failure that specifically looks like no connectivity (couldn't resolve host, couldn't connect, timed out, TLS handshake failed) says so plainly rather than quoting curl's own phrasing; HTTP 401/403 says to check the API key; 429 says to wait and retry (on top of the existing automatic retry-with-backoff for 429/5xx); 5xx says the server's having trouble. A missing Anthropic/OpenAI key is caught even earlier, in `pipeline_resolve_llm()`, before any request is sent -- except openai against a local `base_url` (LM Studio etc.), which never needed a key to begin with.
+
 Whatever's currently in the status bar is also flushed to stderr once the terminal tears
 down -- on a normal quit, on Ctrl+C mid-loading screen, and on a fatal signal (`SIGINT`/
 `SIGTERM`/`SIGHUP`/`SIGQUIT`). Without this, an error like "Could not load game: ..." was
@@ -433,6 +435,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 - **Unit:** `text.c`, `strbuf`, theme JSON parsing, prompt building (golden strings). Use CTest with a tiny assert macro, no framework needed.
 - **Fixtures:** saved Steam JSON responses in `tests/fixtures/` so tests run offline.
 - **Fake LLM provider:** `provider = fake` returns canned JSON or text, so you can test the full pipeline without an API key.
+- **`test_pipeline`:** `pipeline_resolve_llm()`'s provider/API-key resolution -- a missing key fails fast for anthropic and for openai against the real API, but not for openai against a local `base_url`, since that's the documented no-key case.
 - **Sanitizers:** `-DSANITIZE=ON` builds with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; CI runs a separate `sanitize` job with it (pulled forward from M5).
 
 ---

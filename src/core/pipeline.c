@@ -25,6 +25,23 @@ int pipeline_resolve_llm(const config_t *cfg, const llm_provider_t **out_provide
     out_cfg->num_ctx = cfg->llm_num_ctx;
     out_cfg->api_key = is_anthropic ? cfg->anthropic_api_key : (is_openai ? cfg->openai_api_key : "");
 
+    /* Fail fast with a precise message instead of letting an empty key
+     * reach the HTTP layer, where it'd only ever show up as a generic
+     * "HTTP 401" once the request round-trips. Anthropic always needs a
+     * key; openai only needs one against the real API -- a base_url
+     * pointing at a local server (LM Studio, llama-server, ...) is the
+     * documented no-key case, so an empty key there is left alone. */
+    if (is_anthropic && out_cfg->api_key[0] == '\0')
+    {
+        err_set(err, -1, "no Anthropic API key set -- export ANTHROPIC_API_KEY, or switch providers in Settings (F2) / config.ini");
+        return -1;
+    }
+    if (is_openai && out_cfg->api_key[0] == '\0' && out_cfg->base_url[0] == '\0')
+    {
+        err_set(err, -1, "no OpenAI API key set -- export OPENAI_API_KEY, or switch providers in Settings (F2) / config.ini");
+        return -1;
+    }
+
     *out_provider = provider;
     return 0;
 }
