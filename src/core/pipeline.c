@@ -110,3 +110,32 @@ int pipeline_fetch_themes(arena_t *arena, const config_t *cfg, uint32_t appid, c
 
     return 0;
 }
+
+void pipeline_fetch_playtime(const config_t *cfg, uint32_t appid, steam_playtime_t *out)
+{
+    out->found = false;
+    out->playtime_minutes = 0;
+
+    if (!cfg->steam_api_key[0] || !cfg->steam_id[0])
+    {
+        debug_logf("playtime: skipped (steam_api_key or steam_id not set)");
+        return;
+    }
+
+    err_t err;
+    err_clear(&err);
+
+    if (steam_fetch_playtime(cfg->steam_api_key, cfg->steam_id, appid, out, &err) != 0)
+    {
+        /* Deliberately not logging err.msg here: unlike every other API
+         * this app calls, GetOwnedGames authenticates via a `key=...` query
+         * parameter rather than a header, so err.msg (built from the full
+         * request URL) would leak the raw Steam API key into debug.log. */
+        debug_logf("playtime: request failed (code %d), skipping", err.code);
+        out->found = false;
+        out->playtime_minutes = 0;
+        return;
+    }
+
+    debug_logf("playtime: found=%s minutes=%d", out->found ? "true" : "false", out->playtime_minutes);
+}

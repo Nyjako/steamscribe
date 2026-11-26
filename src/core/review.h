@@ -40,6 +40,10 @@ typedef struct review_request_t
     review_tone_t tone;
     review_vocab_t vocab;
 
+    /* 0 = unknown/not included; else the player's own playtime for this
+     * game, from the Steam Web API (best-effort, see pipeline_fetch_playtime). */
+    int playtime_hours;
+
     /* Optional, AI-generated follow-up questions and the player's answers
      * (parallel arrays of n_followup entries). A blank/empty answer means
      * that question was skipped and is left out of the prompt. May be NULL

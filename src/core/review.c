@@ -46,6 +46,11 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     strbuf_append_cstr(&system, "- Use only the provided points below. Never invent or add any extra like, dislike, experience, number, or feature -- not even ones that sound typical for this kind of game.\n");
     strbuf_append_cstr(&system, "- Plain text only: no headings, no markdown, no emojis unless told otherwise below.\n");
     strbuf_append_cstr(&system, "- End with a single-line verdict stating whether you recommend the game.\n");
+    if (req->playtime_hours > 0)
+        strbuf_append_fmt(&system,
+                           "- The player has about %d hours in this game. You may work that in naturally if it "
+                           "fits (e.g. \"After %d hours...\"), but don't force it in and never mention it more than once.\n",
+                           req->playtime_hours, req->playtime_hours);
     if (req->rating > 0) strbuf_append_fmt(&system, "- The player also gave it a rating. Work \"(%d/10)\" into that verdict line exactly as written -- don't change the number.\n", req->rating);
     strbuf_append_fmt(&system, "- Length: %s.\n", length_instruction(req->length));
     strbuf_append_fmt(&system, "- %s\n", tone_instruction(req->tone));
@@ -91,6 +96,7 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     }
 
     strbuf_append_fmt(&user, "\nAdditional notes: %s\n", (req->notes && req->notes[0]) ? req->notes : "(none)");
+    if (req->playtime_hours > 0) strbuf_append_fmt(&user, "\nMy playtime: %d hours\n", req->playtime_hours);
     strbuf_append_fmt(&user, "\nOverall recommendation: %s\n", req->recommend ? "yes" : "no");
     if (req->rating > 0) strbuf_append_fmt(&user, "Rating: %d/10\n", req->rating);
 

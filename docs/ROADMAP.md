@@ -123,7 +123,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 
 - [x] Rating-style output (x/10) as an option alongside the plain yes/no recommendation -- a new optional "Rating 1-10" step right after Recommend, in both the TUI and `--plain`. Blank skips it (same "Enter skips" convention as notes); the model is told to work "(N/10)" into its closing verdict line exactly as given, never to invent its own number.
 - [x] Steam BBCode output option, scoped to spoilers specifically: a new per-review "Format: (p)lain / (b)bcode" step right after Vocab, in both the TUI and `--plain`, followed by an always-asked, optional, verbatim "Spoiler details" step. The spoiler text is never passed to the model at all -- it's appended to the generated review exactly as typed, after generation, wrapped in `[spoiler][/spoiler]` when the format is bbcode or under a plain "Spoilers:" label otherwise. The main review body itself isn't affected by the format choice; only the spoiler block's wrapping changes.
-- [ ] Optional Steam Web API key to include your playtime ("After 120 hours…") -- your own free key (`STEAM_API_KEY`, env-only like the LLM keys) plus your SteamID64 (`[steam] steam_id` in config, not secret); best-effort like the follow-up questions, silently skipped if either is missing.
+- [x] Optional Steam Web API key to include your playtime ("After 120 hours…") -- your own free key (`STEAM_API_KEY`, env-only like the LLM keys) plus your SteamID64 (`[steam] steam_id` in config, not secret); best-effort like the follow-up questions, silently skipped if either is missing or the request fails. Fetched lazily right before generating (not during the game-load fetch), via `IPlayerService/GetOwnedGames`.
 
 **Done when:** all three above are merged.
 

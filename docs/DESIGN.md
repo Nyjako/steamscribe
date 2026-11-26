@@ -40,7 +40,7 @@ The TUI is a simple **state machine**. Each screen is a state with `draw()` and 
 
 ## 3. External data
 
-All endpoints are public JSON. No key is needed.
+All endpoints are public JSON and need no key, except 3.5 (playtime), which is opt-in.
 
 ### 3.1 Search
 `GET https://store.steampowered.com/api/storesearch/?term=<q>&cc=us&l=english`
@@ -86,6 +86,25 @@ every parameter besides the optional `key` travels inside a single JSON-encoded
 - User-Agent: `steamscribe/<version>`
 - Sequential requests with a ~300 ms delay between review pages
 - 10 s connect and 30 s total timeout, with 2 retries and backoff on 429/5xx
+
+### 3.5 Playtime (optional)
+`GET https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=<key>&steamid=<id>&appids_filter[0]=<appid>&include_appinfo=false&include_played_free_games=true&format=json`
+→ `{"response": {"games": [{"appid": ..., "playtime_forever": <minutes>, ...}]}}` -- `games`
+is absent (or empty) if the account doesn't own that appid, or the profile/game details
+are private. This is the **Steam Web API**, a different service from 3.1-3.3 above (which
+are the public store/community endpoints): it needs the account's own free API key
+(`STEAM_API_KEY`, env-only, same reasoning as the LLM keys) and SteamID64
+(`[steam] steam_id` in config.ini -- not a secret, so unlike the key it's fine to keep
+there). Authenticates via a `key=` query parameter rather than a header, which is why
+`pipeline_fetch_playtime()` deliberately does *not* log `err.msg` on failure (it's built
+from the full request URL, which would leak the key into `debug.log`) -- it logs just the
+HTTP status code instead.
+
+Entirely best-effort, same pattern as the follow-up questions: a missing key/id, or any
+failure calling the API, just means no playtime is passed to the review prompt, never a
+hard error. Fetched lazily right before generating the review (not during the game-load
+fetch, since it's cheap and only needed at that point), and converted from minutes to
+whole hours, so playtime under 60 minutes just doesn't surface at all.
 
 ---
 
@@ -157,13 +176,18 @@ into the review prompt (see 4.3), as a `- <question> <answer>` line each, under 
 about my experience:" heading that's left out entirely if nothing was answered.
 
 ### 4.3 Review generation
-Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, an optional 1-10 rating, length, tone, vocabulary.
+Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, an optional 1-10 rating, an optional playtime (see 3.5), length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
 - Use only the provided points below. Never invent or add any extra like, dislike,
   experience, number, or feature -- not even ones that sound typical for this kind of
   game (worded this strongly because a local model otherwise did exactly that: added an
   unchecked, genre-typical complaint on its own).
+- Playtime: when available (`playtime_hours > 0`), one extra rule tells the model it *may*
+  work it in naturally (e.g. "After 120 hours...") but never force it in and never mention
+  it twice -- unlike the no-invented-content rule above, this one's explicitly optional,
+  since forcing every single review to open with a playtime callout would get repetitive
+  fast.
 - Short = 2–4 sentences. Medium = 1–2 paragraphs. Long = 3–4 paragraphs.
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
 - Rating: a new optional step right after Recommend, in both the TUI and `--plain` --

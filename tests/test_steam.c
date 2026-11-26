@@ -198,6 +198,39 @@ static int test_parse_reviews_page_empty_response(void)
     return 0;
 }
 
+static int test_parse_owned_games_found(void)
+{
+    char *json = read_fixture("getownedgames_892970_found.json");
+    TEST_ASSERT(json != NULL);
+
+    steam_playtime_t out;
+    err_t err;
+    int rc = steam_parse_owned_games(json, &out, &err);
+    free(json);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(out.found == true);
+    TEST_ASSERT(out.playtime_minutes == 7320);
+
+    return 0;
+}
+
+static int test_parse_owned_games_not_owned(void)
+{
+    char *json = read_fixture("getownedgames_not_owned.json");
+    TEST_ASSERT(json != NULL);
+
+    steam_playtime_t out;
+    err_t err;
+    int rc = steam_parse_owned_games(json, &out, &err);
+    free(json);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(out.found == false);
+
+    return 0;
+}
+
 int main(void)
 {
     if (test_parse_search()) return 1;
@@ -207,6 +240,8 @@ int main(void)
     if (test_parse_reviews_page_negative()) return 1;
     if (test_parse_reviews_page_second_page_has_no_summary()) return 1;
     if (test_parse_reviews_page_empty_response()) return 1;
+    if (test_parse_owned_games_found()) return 1;
+    if (test_parse_owned_games_not_owned()) return 1;
 
     printf("all tests passed\n");
     return 0;

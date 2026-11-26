@@ -24,4 +24,11 @@ int pipeline_fetch_game(arena_t *arena, const config_t *cfg, uint32_t appid, gam
  * entry when there is one and sampling reviews + calling the LLM otherwise. */
 int pipeline_fetch_themes(arena_t *arena, const config_t *cfg, uint32_t appid, const game_info_t *game, theme_set_t *out, err_t *err);
 
+/* Best-effort: the player's own playtime for `appid`, if `cfg->steam_api_key`
+ * and `cfg->steam_id` are both set and the Steam Web API call succeeds.
+ * Never fails -- a missing key/id or a failed request just leaves
+ * `out->found` false (logged via debug_logf, not surfaced as an error),
+ * same "optional, silently skipped" pattern as the follow-up questions. */
+void pipeline_fetch_playtime(const config_t *cfg, uint32_t appid, steam_playtime_t *out);
+
 #endif
