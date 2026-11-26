@@ -356,6 +356,14 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     read_line(recommend_line, sizeof(recommend_line));
     bool recommend = (recommend_line[0] == 'y' || recommend_line[0] == 'Y');
 
+    printf("Rating 1-10, optional (blank skips) > ");
+    fflush(stdout);
+    char rating_line[16];
+    read_line(rating_line, sizeof(rating_line));
+    int rating = rating_line[0] ? atoi(rating_line) : 0;
+    if (rating < 0) rating = 0;
+    if (rating > 10) rating = 10;
+
     printf("Length: (s)hort / (m)edium / (l)ong > ");
     fflush(stdout);
     char length_line[16];
@@ -383,6 +391,7 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     req.themes = &themes;
     req.notes = notes;
     req.recommend = recommend;
+    req.rating = rating;
     req.length = length;
     req.tone = tone;
     req.vocab = vocab;

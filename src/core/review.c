@@ -46,6 +46,7 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     strbuf_append_cstr(&system, "- Use only the provided points below. Never invent or add any extra like, dislike, experience, number, or feature -- not even ones that sound typical for this kind of game.\n");
     strbuf_append_cstr(&system, "- Plain text only: no headings, no markdown, no emojis unless told otherwise below.\n");
     strbuf_append_cstr(&system, "- End with a single-line verdict stating whether you recommend the game.\n");
+    if (req->rating > 0) strbuf_append_fmt(&system, "- The player also gave it a rating. Work \"(%d/10)\" into that verdict line exactly as written -- don't change the number.\n", req->rating);
     strbuf_append_fmt(&system, "- Length: %s.\n", length_instruction(req->length));
     strbuf_append_fmt(&system, "- %s\n", tone_instruction(req->tone));
 
@@ -91,6 +92,7 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
 
     strbuf_append_fmt(&user, "\nAdditional notes: %s\n", (req->notes && req->notes[0]) ? req->notes : "(none)");
     strbuf_append_fmt(&user, "\nOverall recommendation: %s\n", req->recommend ? "yes" : "no");
+    if (req->rating > 0) strbuf_append_fmt(&user, "Rating: %d/10\n", req->rating);
 
     *out_system = arena_strdup(arena, strbuf_cstr(&system));
     *out_user = arena_strdup(arena, strbuf_cstr(&user));
