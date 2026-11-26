@@ -508,8 +508,16 @@ static int test_notes_flow_to_generate_review(void)
     TEST_ASSERT(state.length == REVIEW_LEN_MEDIUM);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_VOCAB);
 
-    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_GENERATE_REVIEW);
+    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_NONE);
     TEST_ASSERT(state.vocab == REVIEW_VOCAB_SIMPLE);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FORMAT);
+
+    TEST_ASSERT(tui_handle_key(&state, 'b', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.bbcode == true);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+
+    /* a blank spoiler field just means "no spoiler" -- Enter still advances */
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_GENERATE_REVIEW);
     TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_REVIEW);
 
     arena_free(&arena);
@@ -565,6 +573,65 @@ static int test_vocab_step_esc_goes_back_to_length(void)
 
     tui_handle_key(&state, 0, TUI_KEY_ESC);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_format_step_esc_and_choice(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_FORMAT;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_VOCAB);
+
+    state.notes_step = TUI_NOTES_STEP_FORMAT;
+    TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.bbcode == false);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_spoiler_step_esc_and_ctrl_s(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_SPOILER;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FORMAT);
+
+    state.notes_step = TUI_NOTES_STEP_SPOILER;
+    tui_handle_key(&state, 't', 0);
+    tui_handle_key(&state, 'w', 0);
+    tui_handle_key(&state, 'i', 0);
+    tui_handle_key(&state, 's', 0);
+    tui_handle_key(&state, 't', 0);
+    TEST_ASSERT(strcmp(state.spoiler_input, "twist") == 0);
+
+    /* once there's content, Enter starts a new line rather than submitting */
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(strcmp(state.spoiler_input, "twist\n") == 0);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_GENERATE_REVIEW);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_REVIEW);
 
     arena_free(&arena);
     return 0;
@@ -1187,6 +1254,8 @@ int main(void)
     if (test_select_esc_goes_back_to_search()) return 1;
     if (test_game_loaded_lands_on_liked()) return 1;
     if (test_checklist_toggle_and_navigate()) return 1;
+    if (test_format_step_esc_and_choice()) return 1;
+    if (test_spoiler_step_esc_and_ctrl_s()) return 1;
     if (test_checklist_add_custom_item()) return 1;
     if (test_checklist_add_custom_item_esc_cancels()) return 1;
     if (test_checklist_add_blank_item_is_noop()) return 1;

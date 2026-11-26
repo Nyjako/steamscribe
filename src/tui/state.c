@@ -443,8 +443,53 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
             else if (ch == 's' || ch == 'S') state->vocab = REVIEW_VOCAB_SIMPLE;
             else return TUI_ACTION_NONE;
 
-            state->screen = TUI_SCREEN_LOADING_REVIEW;
-            return TUI_ACTION_GENERATE_REVIEW;
+            state->notes_step = TUI_NOTES_STEP_FORMAT;
+            return TUI_ACTION_NONE;
+
+        case TUI_NOTES_STEP_FORMAT:
+            if (key == TUI_KEY_ESC)
+            {
+                state->notes_step = TUI_NOTES_STEP_VOCAB;
+                return TUI_ACTION_NONE;
+            }
+            if (ch == 'p' || ch == 'P') state->bbcode = false;
+            else if (ch == 'b' || ch == 'B') state->bbcode = true;
+            else return TUI_ACTION_NONE;
+
+            state->notes_step = TUI_NOTES_STEP_SPOILER;
+            return TUI_ACTION_NONE;
+
+        case TUI_NOTES_STEP_SPOILER:
+            if (key == TUI_KEY_ESC)
+            {
+                state->notes_step = TUI_NOTES_STEP_FORMAT;
+                return TUI_ACTION_NONE;
+            }
+            if (key == TUI_KEY_CTRL_S)
+            {
+                state->screen = TUI_SCREEN_LOADING_REVIEW;
+                return TUI_ACTION_GENERATE_REVIEW;
+            }
+            if (key == TUI_KEY_ENTER)
+            {
+                /* Same "Enter skips an empty field, otherwise inserts a
+                 * newline" convention as the main notes field. */
+                if (state->spoiler_input_len == 0)
+                {
+                    state->screen = TUI_SCREEN_LOADING_REVIEW;
+                    return TUI_ACTION_GENERATE_REVIEW;
+                }
+
+                text_field_t f = {state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor};
+                text_field_insert_char(&f, '\n');
+                return TUI_ACTION_NONE;
+            }
+
+            {
+                text_field_t f = {state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor};
+                handle_text_field_key(&f, ch, key, false);
+            }
+            return TUI_ACTION_NONE;
 
         default:
             return TUI_ACTION_NONE;

@@ -101,6 +101,22 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     strbuf_free(&user);
 }
 
+char *review_append_spoiler(arena_t *arena, const review_request_t *req, const char *generated_text)
+{
+    if (!req->spoiler_notes || !req->spoiler_notes[0]) return arena_strdup(arena, generated_text);
+
+    strbuf_t out;
+    strbuf_init(&out);
+    strbuf_append_cstr(&out, generated_text);
+
+    if (req->bbcode) strbuf_append_fmt(&out, "\n\n[spoiler]%s[/spoiler]", req->spoiler_notes);
+    else strbuf_append_fmt(&out, "\n\nSpoilers: %s", req->spoiler_notes);
+
+    char *result = arena_strdup(arena, strbuf_cstr(&out));
+    strbuf_free(&out);
+    return result;
+}
+
 int review_generate(arena_t *arena, const llm_provider_t *provider, const llm_cfg_t *cfg, const review_request_t *req, char **out_text, err_t *err)
 {
     char *system = NULL;
@@ -111,7 +127,7 @@ int review_generate(arena_t *arena, const llm_provider_t *provider, const llm_cf
     strbuf_init(&response);
 
     int rc = provider->complete(cfg, system, user, &response, err);
-    if (rc == 0) *out_text = arena_strdup(arena, strbuf_cstr(&response));
+    if (rc == 0) *out_text = review_append_spoiler(arena, req, strbuf_cstr(&response));
 
     strbuf_free(&response);
     return rc;

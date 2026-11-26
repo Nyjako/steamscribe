@@ -177,6 +177,20 @@ System prompt rules:
   plain, everyday words and avoid fancy or technical vocabulary. Picked per review, right
   after length, in both the TUI and `--plain`; defaults from `[review] default_vocab`.
 
+**Format and spoilers.** Right after Vocab, a "Format: (p)lain / (b)bcode" step, then an
+always-asked, optional "Spoiler details" step -- a separate text field, not folded into
+the main notes. Spoiler text is deliberately never sent to the model at all: it's
+appended to the generated text as-is, after generation (`review_append_spoiler()`, pure
+and unit-tested without a network dependency), wrapped in `[spoiler][/spoiler]` when the
+format is bbcode or under a plain "Spoilers:" label otherwise. Two alternatives were
+considered and rejected: letting the model guess what counts as a spoiler (unpredictable,
+both over- and under-marks things), and inline markers the model is told to preserve
+verbatim (fragile on a small local model, which could still paraphrase or drop the
+marker). Appending after the fact sidesteps both failure modes entirely, at the cost of
+spoiler content always landing at the end rather than inline with the surrounding prose.
+The format choice only affects this one block -- the main review body's wording is the
+same either way; BBCode markup elsewhere (bold, lists, ...) was explicitly out of scope.
+
 From the Result screen, the TUI also offers to go back through Liked/Disliked/Notes/
 Options with everything from last time still in place (`o`) -- for fixing a wrong
 like/dislike or picking a different length/tone/vocab without starting over from what the
