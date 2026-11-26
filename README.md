@@ -35,7 +35,7 @@ $ steamscribe valheim
 
 ## Status
 
-🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), optional AI-generated follow-up questions, notes/options, and a generated review you can edit in `$EDITOR` or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look. Clipboard copy and saving to disk are still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
+🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), optional AI-generated follow-up questions, notes/options, and a generated review you can edit in `$EDITOR`, copy to clipboard, or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look, and saving a copy to disk is still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
 ## Features (planned)
 
@@ -45,9 +45,10 @@ $ steamscribe valheim
 - Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- add your own items the AI didn't surface, or move one to the other side if the AI guessed your opinion wrong
 - A few optional, AI-generated follow-up questions tailored to what you checked (e.g. "Which structure did you build that made the resource gathering feel worth it?"), so your review can include specific detail a plain "anything else?" tends to miss -- skip any you don't want to answer
 - Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
-- Edit the generated review in `$EDITOR`, regenerate, or go back and change your answers -- or copy to clipboard / save locally (still ahead)
+- Edit the generated review in `$EDITOR`, copy it to your clipboard, regenerate, or go back and change your answers -- saving a copy locally is still ahead
+- Full cursor-based text editing everywhere you type -- arrow keys, Home/End, forward delete -- and the notes field is a real multi-line box (Enter for a new line, Ctrl+S to continue)
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
-- Press **F2** in the TUI to change provider/model/base URL/context size without leaving the app or hand-editing `config.ini`
+- Press **F2** in the TUI to change provider/model/base URL/context size/review count without leaving the app or hand-editing `config.ini`
 - Caches Steam data so it doesn't hammer Steam's servers
 
 ## Requirements

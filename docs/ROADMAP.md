@@ -86,7 +86,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 **Goal:** feels finished.
 
 - [x] Worker thread plus animated spinner during fetch, analyze and generate (pulled forward into M4 once local-model inference turned out slow enough on CPU to need it)
-- [ ] Copy to clipboard (OSC 52, fallback to `wl-copy` / `xclip` / `pbcopy`)
+- [x] Copy to clipboard (OSC 52, plus whichever of `wl-copy` / `xclip` / `pbcopy` is installed, tried in parallel since there's no reliable success signal from either)
 - [x] Edit in `$EDITOR`, then return to the result screen (TUI only; `--plain` has no post-review menu to hang this off of)
 - [ ] Save review to `~/.local/share/steamscribe/reviews/`
 - [x] Add your own custom like/dislike items in the checklist
@@ -94,7 +94,9 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Move a checklist item to the other side (liked <-> disliked), for when the AI filed something under the wrong one of your own opinions -- in both the TUI (`m`) and `--plain` (not a roadmap item originally, added on request)
 - [x] "Change your answers" from the Result screen -- goes back through Liked/Disliked/Notes/Options with everything you answered last time still in place, instead of only a blind regenerate (TUI only; not a roadmap item originally, added on request)
 - [x] AI-generated, optional follow-up questions (`core/followup.c`) asked right after Disliked, built from only your checked liked/disliked labels -- aimed at surfacing specific personal detail a plain "anything else?" tends to miss (e.g. "Which structure did you build that made the resource gathering feel worth it?"). Best-effort: a generation failure is just zero questions, never a hard error. In both the TUI and `--plain` (not a roadmap item originally, added on request)
-- [x] The free-text "Anything else?" input (and the new follow-up answers) word-wrap across lines instead of running off the edge of the terminal -- bug fix, reusing `text_wrap` via a new `widgets_draw_wrapped_input`
+- [x] Real cursor-based text editing everywhere (search, custom checklist items, notes, follow-up answers, Settings): left/right/home/end/forward-delete at an arbitrary position, not just append/backspace-at-end -- see DESIGN.md 5.5. Along the way, fixed a bug where every free-text field's cursor visibly lagged a space behind what was actually typed (word-wrap doesn't keep a trailing space, which the old cursor-placement logic relied on), made the notes field properly multi-line (Enter inserts a newline once there's content; Ctrl+S submits; an empty field still lets Enter skip past so it's not required just to leave it blank), raised its character cap from 512 to 8192, and fixed pasted multi-line text blowing straight through Recommend/Length/Vocab into generating a review (each embedded newline used to be read as "submit and advance")
+- [x] Theme checklist count is a genuinely variable 7-14 instead of always landing on exactly 7 -- a small local model given only a loose "5 to 8" range in the prompt text consistently settled on the low end regardless of how many distinct points the reviews actually supported, so the schema itself (for a schema-capable provider) now also sets `minItems`/`maxItems`
+- [x] `[steam] review_count` (how many player reviews to sample) is now editable from the TUI Settings screen, not just by hand-editing `config.ini`
 - [ ] Friendly errors (no key, offline, game not found, rate-limited)
 - [x] ASan/UBSan CI job, no leaks or warnings (pulled forward into a `sanitize` CI job; the whole test suite passes clean under ASan/LSan/UBSan)
 
