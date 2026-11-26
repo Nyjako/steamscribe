@@ -238,6 +238,52 @@ static int test_append_spoiler_empty_is_a_no_op(void)
     return 0;
 }
 
+static int test_predict_spoiler_finds_keyword_sentences(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    const char *answers[] = {"The combat felt great.", "I was shocked the final boss turns out to be your own brother."};
+    char *result = review_predict_spoiler(&arena, "Loved the world. The ending made me cry though.", answers, 2);
+
+    TEST_ASSERT(strstr(result, "The ending made me cry though") != NULL);
+    TEST_ASSERT(strstr(result, "final boss turns out to be your own brother") != NULL);
+    TEST_ASSERT(strstr(result, "combat felt great") == NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_predict_spoiler_no_match_is_empty(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    const char *answers[] = {"The combat felt great and the music was nice."};
+    char *result = review_predict_spoiler(&arena, "Loved the world and the crafting.", answers, 1);
+
+    TEST_ASSERT(strcmp(result, "") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_predict_spoiler_handles_empty_and_null_inputs(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_predict_spoiler(&arena, NULL, NULL, 0);
+    TEST_ASSERT(strcmp(result, "") == 0);
+
+    const char *answers[] = {"", NULL};
+    result = review_predict_spoiler(&arena, "", answers, 2);
+    TEST_ASSERT(strcmp(result, "") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_minimal_prompt_golden(void)
 {
     arena_t arena;
@@ -517,6 +563,9 @@ int main(void)
     if (test_append_spoiler_plain()) return 1;
     if (test_append_spoiler_bbcode()) return 1;
     if (test_append_spoiler_empty_is_a_no_op()) return 1;
+    if (test_predict_spoiler_finds_keyword_sentences()) return 1;
+    if (test_predict_spoiler_no_match_is_empty()) return 1;
+    if (test_predict_spoiler_handles_empty_and_null_inputs()) return 1;
     if (test_minimal_prompt_golden()) return 1;
     if (test_simple_vocab_adds_instruction_line()) return 1;
     if (test_followup_answers_are_included_skipped_ones_are_not()) return 1;

@@ -309,6 +309,10 @@ static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16
     return TUI_ACTION_NONE;
 }
 
+/* Defined below; copies `src` into a fixed text-field buffer with the
+ * cursor at the end, the usual place to start editing existing text. */
+static void copy_into(char *dst, size_t dst_cap, size_t *dst_len, size_t *dst_cursor, const char *src);
+
 static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t key)
 {
     switch (state->notes_step)
@@ -457,6 +461,21 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
             else return TUI_ACTION_NONE;
 
             state->notes_step = TUI_NOTES_STEP_SPOILER;
+
+            /* Pre-fill with a best guess so the step isn't always a blank
+             * field -- only when nothing's there yet, so this never
+             * clobbers an answer from a previous pass through (e.g. via
+             * "change answers" from the Result screen). The player edits or
+             * clears it like anything else they typed; nothing ships
+             * without going through this field. */
+            if (state->spoiler_input_len == 0)
+            {
+                const char *answers[FOLLOWUP_MAX_QUESTIONS];
+                for (size_t i = 0; i < state->n_followup_questions; i++) answers[i] = state->followup_answer[i];
+
+                char *guess = review_predict_spoiler(state->arena, state->notes_input, answers, state->n_followup_questions);
+                if (guess[0]) copy_into(state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor, guess);
+            }
             return TUI_ACTION_NONE;
 
         case TUI_NOTES_STEP_SPOILER:

@@ -71,6 +71,15 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
  * spoiler_notes is empty. Pure, arena-allocated, safe to test. */
 char *review_append_spoiler(arena_t *arena, const review_request_t *req, const char *generated_text);
 
+/* Scans `notes` and `answers` (n_answers of them, any of which may be NULL
+ * or empty) for sentences that sound spoiler-y (endings, deaths, twists,
+ * reveals, ...) via a plain keyword match, and returns them joined with
+ * ". " as a best-guess pre-fill for the Spoiler step -- or an empty string
+ * if nothing matched. This is only ever a suggestion the player edits or
+ * clears before anything ships; it never decides what's actually a spoiler
+ * and its output is never sent to the model. Pure, arena-allocated. */
+char *review_predict_spoiler(arena_t *arena, const char *notes, const char *const *answers, size_t n_answers);
+
 /* Builds the prompt and calls provider->complete() to generate the review text. */
 int review_generate(arena_t *arena, const llm_provider_t *provider, const llm_cfg_t *cfg, const review_request_t *req, char **out_text, err_t *err);
 
