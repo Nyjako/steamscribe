@@ -26,15 +26,20 @@ Help a player write a short, honest Steam review in under two minutes, without l
 ```
  ┌──────────┐   ┌──────────┐   ┌───────────────┐   ┌────────────┐
  │  Search  │──▶│  Select  │──▶│ Fetch+Analyze │──▶│   Liked    │
- └──────────┘   └──────────┘   │   (spinner)   │   │ checklist  │
-                               └───────────────┘   └─────┬──────┘
- ┌──────────┐   ┌──────────┐   ┌───────────────┐   ┌─────▼──────┐
- │  Result  │◀──│ Generate │◀──│ Notes + y/n + │◀──│  Disliked  │
- │ c/e/r/s/q│   │(spinner) │   │ length/tone   │   │ checklist  │
- └──────────┘   └──────────┘   └───────────────┘   └────────────┘
+ └────┬─────┘   └──────────┘   │   (spinner)   │   │ checklist  │
+      │F3        ▲             └───────────────┘   └─────┬──────┘
+ ┌────▼─────┐    │(Esc)        ┌───────────────┐   ┌─────▼──────┐
+ │ Library  │────┘             │ Notes + y/n + │◀──│  Disliked  │
+ │(by hours)│──────────────────▶   length/tone │   │ checklist  │
+ └────▲─────┘        (Enter)   └───────┬───────┘   └────────────┘
+      │ n                             ▼
+ ┌────┴─────┐   ┌──────────┐   ┌───────────────┐
+ │  Result  │◀──│ Generate │◀──│   (same as    │
+ │c/e/r/s/o/n│   │(spinner) │   │    above)     │
+ └──────────┘   └──────────┘   └───────────────┘
 ```
 
-The TUI is a simple **state machine**. Each screen is a state with `draw()` and `handle_event()`, and transitions go forward or back (Esc).
+The TUI is a simple **state machine**. Each screen is a state with `draw()` and `handle_event()`, and transitions go forward or back (Esc). F3 (from anywhere) and `n` (from Result) both drop into **Library** -- browsing your own owned games by playtime instead of typing a name to search for -- and either loops back to it with Esc/`n` without leaving the TUI, or back to Search if you'd rather type a name after all.
 
 ---
 
@@ -107,6 +112,20 @@ failure calling the API, just means no playtime is passed to the review prompt, 
 hard error. Fetched lazily right before generating the review (not during the game-load
 fetch, since it's cheap and only needed at that point), and converted from minutes to
 whole hours, so playtime under 60 minutes just doesn't surface at all.
+
+### 3.6 Owned-games library (optional)
+`GET https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=<key>&steamid=<id>&include_appinfo=true&include_played_free_games=true&format=json`
+→ `{"response": {"games": [{"appid": ..., "name": ..., "playtime_forever": <minutes>, ...}]}}`
+
+Same Steam Web API/auth as 3.5, just without `appids_filter` and with `include_appinfo=true`
+so each entry carries its own name -- the whole account library in one request, not one
+game. Unlike 3.5 this is **not** best-effort: there's nothing useful to show instead of a
+library, so a missing key/id or a failed request surfaces as an error on the Search
+screen (steering the player to Settings) rather than being silently skipped. Sorted
+most-played-first client-side after fetching (`qsort`, Steam doesn't sort this response
+itself) and rendered in a scrolling window (`widgets_draw_library`) so a library with more
+games than fit on screen stays navigable. Same URL-leak caveat as 3.5 applies to
+`pipeline_fetch_library()`'s error handling.
 
 ---
 
@@ -292,7 +311,7 @@ src/
   net/
     http.c/.h       libcurl wrapper: GET/POST JSON, retries, timeouts
   steam/
-    steam.c/.h      search, appdetails, reviews (pagination)
+    steam.c/.h      search, appdetails, reviews (pagination), owned-games library (3.6)
     cache.c/.h      JSON files under ~/.cache/steamscribe/<appid>/
   llm/
     llm.c/.h        provider registry
@@ -312,7 +331,9 @@ src/
                     shares one text_field_t { buf, cap, *len, *cursor } and a handful of
                     editing primitives (insert/backspace/delete-forward/left/right/home/
                     end at an arbitrary cursor position, not just the end) -- see 5.5.
-                    Includes a Settings screen (F2) covering every config.ini setting
+                    Includes a Library screen (F3, or `n` from Result) for browsing your
+                    own owned games by playtime (3.6) instead of typing a name, and a
+                    Settings screen (F2) covering every config.ini setting
                     (provider/model/base_url/num_ctx, steam language/review-count/cache-
                     ttl/id/api-key, review length/tone/vocab defaults) except the
                     Anthropic/OpenAI keys, which stay env-only -- staged in app_state_t

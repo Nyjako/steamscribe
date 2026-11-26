@@ -38,6 +38,32 @@ void widgets_draw_search_results(int y, const steam_search_results_t *results, s
     }
 }
 
+void widgets_draw_library(int y, const steam_library_t *library, size_t cursor)
+{
+    int available = tb_height() - y - 1;
+    if (available < 1) available = 1;
+
+    size_t start = 0;
+    if (library->count > (size_t)available)
+    {
+        if (cursor >= (size_t)available) start = cursor - (size_t)available + 1;
+
+        size_t max_start = library->count - (size_t)available;
+        if (start > max_start) start = max_start;
+    }
+
+    size_t end = start + (size_t)available;
+    if (end > library->count) end = library->count;
+
+    for (size_t i = start; i < end; i++)
+    {
+        uintattr_t fg = (i == cursor) ? TB_BLACK : TB_DEFAULT;
+        uintattr_t bg = (i == cursor) ? TB_CYAN : TB_DEFAULT;
+        double hours = library->items[i].playtime_minutes / 60.0;
+        tb_printf(2, y + (int)(i - start), fg, bg, "%7.1fh  %s", hours, library->items[i].name);
+    }
+}
+
 void widgets_draw_checklist(int y, const theme_t *items, size_t count, size_t cursor)
 {
     for (size_t i = 0; i < count; i++)

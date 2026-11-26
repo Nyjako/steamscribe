@@ -46,6 +46,7 @@ $ steamscribe valheim
 - A few optional, AI-generated follow-up questions tailored to what you checked (e.g. "Which structure did you build that made the resource gathering feel worth it?"), so your review can include specific detail a plain "anything else?" tends to miss -- skip any you don't want to answer
 - Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
 - Optionally mentions your own playtime for the game (e.g. "After 120 hours...") if you've set your SteamID64 and a free Steam Web API key -- skipped silently if you haven't
+- Press **F3** (or `n` from the finished review) to browse your own Steam library sorted by playtime instead of typing a game name -- picking one, finishing a review, then picking another loops right back to the list
 - Edit the generated review in `$EDITOR`, copy it to your clipboard, regenerate, or go back and change your answers -- saving a copy locally is still ahead
 - Full cursor-based text editing everywhere you type -- arrow keys, Home/End, forward delete -- and the notes field is a real multi-line box (Enter for a new line, Ctrl+S to continue)
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models

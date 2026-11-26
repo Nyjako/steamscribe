@@ -20,6 +20,7 @@
 #define TUI_KEY_ARROW_LEFT  (0xffffu - 20)
 #define TUI_KEY_ARROW_RIGHT (0xffffu - 21)
 #define TUI_KEY_F2          (0xffffu - 1)
+#define TUI_KEY_F3          (0xffffu - 2)
 #define TUI_KEY_CTRL_S      0x13
 
 #endif

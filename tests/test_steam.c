@@ -231,6 +231,60 @@ static int test_parse_owned_games_not_owned(void)
     return 0;
 }
 
+static int test_parse_owned_games_list_full(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *json = read_fixture("getownedgames_library.json");
+    TEST_ASSERT(json != NULL);
+
+    steam_library_t out;
+    err_t err;
+    int rc = steam_parse_owned_games_list(&arena, json, &out, &err);
+    free(json);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(out.count == 3);
+
+    /* Parse order, same as the JSON -- sorting by playtime is
+     * steam_fetch_library's job, not the parser's. */
+    TEST_ASSERT(out.items[0].appid == 892970);
+    TEST_ASSERT(strcmp(out.items[0].name, "Valheim") == 0);
+    TEST_ASSERT(out.items[0].playtime_minutes == 7320);
+
+    TEST_ASSERT(out.items[1].appid == 1145360);
+    TEST_ASSERT(strcmp(out.items[1].name, "Hades") == 0);
+    TEST_ASSERT(out.items[1].playtime_minutes == 120);
+
+    TEST_ASSERT(out.items[2].appid == 413150);
+    TEST_ASSERT(strcmp(out.items[2].name, "Stardew Valley") == 0);
+    TEST_ASSERT(out.items[2].playtime_minutes == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_parse_owned_games_list_empty_or_private(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *json = read_fixture("getownedgames_not_owned.json");
+    TEST_ASSERT(json != NULL);
+
+    steam_library_t out;
+    err_t err;
+    int rc = steam_parse_owned_games_list(&arena, json, &out, &err);
+    free(json);
+
+    TEST_ASSERT(rc == 0);
+    TEST_ASSERT(out.count == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 int main(void)
 {
     if (test_parse_search()) return 1;
@@ -242,6 +296,8 @@ int main(void)
     if (test_parse_reviews_page_empty_response()) return 1;
     if (test_parse_owned_games_found()) return 1;
     if (test_parse_owned_games_not_owned()) return 1;
+    if (test_parse_owned_games_list_full()) return 1;
+    if (test_parse_owned_games_list_empty_or_private()) return 1;
 
     printf("all tests passed\n");
     return 0;

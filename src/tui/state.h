@@ -29,6 +29,8 @@ typedef enum
 {
     TUI_SCREEN_SEARCH,
     TUI_SCREEN_SELECT,
+    TUI_SCREEN_LOADING_LIBRARY,
+    TUI_SCREEN_LIBRARY,
     TUI_SCREEN_LOADING_GAME,
     TUI_SCREEN_LIKED,
     TUI_SCREEN_DISLIKED,
@@ -75,6 +77,7 @@ typedef enum
     TUI_ACTION_NONE,
     TUI_ACTION_QUIT,
     TUI_ACTION_SEARCH,          /* run a search for state->search_input */
+    TUI_ACTION_LOAD_LIBRARY,    /* fetch the player's owned-games library, sorted by playtime */
     TUI_ACTION_LOAD_GAME,       /* fetch game info + themes for state->appid */
     TUI_ACTION_GENERATE_FOLLOWUP, /* generate optional follow-up questions from state->themes */
     TUI_ACTION_PREDICT_SPOILER, /* best-guess the Spoiler step's pre-fill from state's notes/follow-up answers */
@@ -99,6 +102,9 @@ typedef struct app_state_t
 
     steam_search_results_t search_results;
     size_t select_cursor;
+
+    steam_library_t library;
+    size_t library_cursor;
 
     uint32_t appid;
     game_info_t game;
@@ -197,6 +203,8 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key);
  * move to the next screen. */
 void tui_apply_search_results(app_state_t *state, steam_search_results_t results);
 void tui_apply_search_failed(app_state_t *state, const char *message);
+void tui_apply_library_loaded(app_state_t *state, steam_library_t library);
+void tui_apply_library_load_failed(app_state_t *state, const char *message);
 void tui_apply_game_loaded(app_state_t *state, uint32_t appid, game_info_t game, theme_set_t themes);
 void tui_apply_game_load_failed(app_state_t *state, const char *message);
 void tui_apply_followup_generated(app_state_t *state, char **questions, size_t count);

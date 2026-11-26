@@ -206,6 +206,43 @@ static tui_action_t handle_select_key(app_state_t *state, uint32_t ch, uint16_t 
     return TUI_ACTION_NONE;
 }
 
+static tui_action_t handle_library_key(app_state_t *state, uint32_t ch, uint16_t key)
+{
+    if (ch == 'q')
+    {
+        state->screen = TUI_SCREEN_QUIT;
+        return TUI_ACTION_QUIT;
+    }
+
+    if (key == TUI_KEY_ESC)
+    {
+        state->screen = TUI_SCREEN_SEARCH;
+        return TUI_ACTION_NONE;
+    }
+
+    if ((key == TUI_KEY_ARROW_UP || ch == 'k') && state->library_cursor > 0)
+    {
+        state->library_cursor--;
+        return TUI_ACTION_NONE;
+    }
+
+    if ((key == TUI_KEY_ARROW_DOWN || ch == 'j') && state->library_cursor + 1 < state->library.count)
+    {
+        state->library_cursor++;
+        return TUI_ACTION_NONE;
+    }
+
+    if (key == TUI_KEY_ENTER)
+    {
+        if (state->library.count == 0) return TUI_ACTION_NONE;
+        state->appid = state->library.items[state->library_cursor].appid;
+        state->screen = TUI_SCREEN_LOADING_GAME;
+        return TUI_ACTION_LOAD_GAME;
+    }
+
+    return TUI_ACTION_NONE;
+}
+
 /* Resets the "add a custom item" text buffer, whether entering or leaving
  * that sub-mode. */
 static void adding_item_reset(app_state_t *state)
@@ -771,6 +808,46 @@ static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_
     return TUI_ACTION_NONE;
 }
 
+/* Clears everything from a finished (or in-progress) review run that would
+ * otherwise leak into the next one -- notes, rating, spoiler details,
+ * follow-up Q&A, the generated review text itself -- before heading back
+ * to pick another game. Deliberately leaves length/tone/vocab/bbcode and
+ * the already-fetched library list alone: those are reusable session
+ * preferences/data, not per-review state. game/themes/liked_cursor/etc.
+ * aren't reset here either -- tui_apply_game_loaded already overwrites all
+ * of them once the next game is actually picked. */
+static void reset_for_next_game(app_state_t *state)
+{
+    adding_item_reset(state);
+
+    state->notes_input[0] = '\0';
+    state->notes_input_len = 0;
+    state->notes_input_cursor = 0;
+
+    state->rating_input[0] = '\0';
+    state->rating_input_len = 0;
+    state->rating_input_cursor = 0;
+    state->rating = 0;
+    state->recommend = false;
+
+    state->spoiler_input[0] = '\0';
+    state->spoiler_input_len = 0;
+    state->spoiler_input_cursor = 0;
+
+    state->followup_questions = NULL;
+    state->n_followup_questions = 0;
+    state->followup_index = 0;
+    for (size_t i = 0; i < FOLLOWUP_MAX_QUESTIONS; i++)
+    {
+        state->followup_answer[i][0] = '\0';
+        state->followup_answer_len[i] = 0;
+        state->followup_answer_cursor[i] = 0;
+    }
+
+    state->review_text = NULL;
+    state->status[0] = '\0';
+}
+
 static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
 {
     if (ch == 'q')
@@ -811,6 +888,21 @@ static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
         return TUI_ACTION_NONE;
     }
 
+    if (ch == 'n')
+    {
+        /* Pick another game -- back to the already-fetched library list
+         * when there is one (no need to refetch), else fall back to
+         * fetching it fresh, same as the global F3 hotkey. */
+        reset_for_next_game(state);
+        if (state->library.count > 0)
+        {
+            state->screen = TUI_SCREEN_LIBRARY;
+            return TUI_ACTION_NONE;
+        }
+        state->screen = TUI_SCREEN_LOADING_LIBRARY;
+        return TUI_ACTION_LOAD_LIBRARY;
+    }
+
     return TUI_ACTION_NONE;
 }
 
@@ -828,6 +920,18 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
         return TUI_ACTION_NONE;
     }
 
+    if (key == TUI_KEY_F3 && state->screen != TUI_SCREEN_LIBRARY && state->screen != TUI_SCREEN_LOADING_LIBRARY)
+    {
+        /* Browse-by-playtime from anywhere, like F2 jumps to Settings from
+         * anywhere -- including mid-flow (Liked/Notes/...), so whatever
+         * review was in progress for the current game gets reset same as
+         * 'n' on the Result screen does, not left to leak into the next
+         * one once a game actually gets picked off the library list. */
+        reset_for_next_game(state);
+        state->screen = TUI_SCREEN_LOADING_LIBRARY;
+        return TUI_ACTION_LOAD_LIBRARY;
+    }
+
     switch (state->screen)
     {
         case TUI_SCREEN_SEARCH:
@@ -835,6 +939,9 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
 
         case TUI_SCREEN_SELECT:
             return handle_select_key(state, ch, key);
+
+        case TUI_SCREEN_LIBRARY:
+            return handle_library_key(state, ch, key);
 
         case TUI_SCREEN_LIKED:
             return handle_checklist_key(state, ch, key, true, TUI_SCREEN_DISLIKED, TUI_SCREEN_SELECT);
@@ -851,6 +958,7 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
         case TUI_SCREEN_SETTINGS:
             return handle_settings_key(state, ch, key);
 
+        case TUI_SCREEN_LOADING_LIBRARY:
         case TUI_SCREEN_LOADING_GAME:
         case TUI_SCREEN_LOADING_FOLLOWUP:
         case TUI_SCREEN_LOADING_REVIEW:
@@ -886,6 +994,28 @@ void tui_apply_search_results(app_state_t *state, steam_search_results_t results
 void tui_apply_search_failed(app_state_t *state, const char *message)
 {
     snprintf(state->status, sizeof(state->status), "Search failed: %s", message);
+    state->screen = TUI_SCREEN_SEARCH;
+}
+
+void tui_apply_library_loaded(app_state_t *state, steam_library_t library)
+{
+    state->library = library;
+    state->library_cursor = 0;
+    state->status[0] = '\0';
+
+    if (library.count == 0)
+    {
+        snprintf(state->status, sizeof(state->status), "Your Steam library is empty (or your profile/game details are private)");
+        state->screen = TUI_SCREEN_SEARCH;
+        return;
+    }
+
+    state->screen = TUI_SCREEN_LIBRARY;
+}
+
+void tui_apply_library_load_failed(app_state_t *state, const char *message)
+{
+    snprintf(state->status, sizeof(state->status), "Could not load your library: %s", message);
     state->screen = TUI_SCREEN_SEARCH;
 }
 

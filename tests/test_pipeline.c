@@ -2,6 +2,8 @@
 
 #include "config.h"
 #include "core/pipeline.h"
+#include "steam/steam.h"
+#include "util/arena.h"
 #include "util/error.h"
 
 #include <stdio.h>
@@ -108,6 +110,26 @@ static int test_unknown_provider_errors(void)
     return 0;
 }
 
+static int test_fetch_library_without_steam_id_or_key_fails_fast(void)
+{
+    config_t cfg = make_cfg("anthropic", "", "sk-test", "");
+    cfg.steam_id = (char *)"";
+    cfg.steam_api_key = (char *)"";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    steam_library_t library;
+    err_t err;
+    err_clear(&err);
+
+    TEST_ASSERT(pipeline_fetch_library(&arena, &cfg, &library, &err) != 0);
+    TEST_ASSERT(strstr(err.msg, "Settings") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
 int main(void)
 {
     if (test_anthropic_without_key_fails_fast()) return 1;
@@ -116,6 +138,7 @@ int main(void)
     if (test_openai_without_key_against_local_server_is_fine()) return 1;
     if (test_ollama_never_needs_anthropic_or_openai_keys()) return 1;
     if (test_unknown_provider_errors()) return 1;
+    if (test_fetch_library_without_steam_id_or_key_fails_fast()) return 1;
 
     printf("test_pipeline: all tests passed\n");
     return 0;

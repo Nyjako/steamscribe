@@ -62,7 +62,8 @@ static void install_signal_handlers(void)
 
 static bool is_loading_screen(tui_screen_t screen)
 {
-    return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_SPOILER_PREDICT || screen == TUI_SCREEN_LOADING_REVIEW;
+    return screen == TUI_SCREEN_LOADING_LIBRARY || screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_SPOILER_PREDICT ||
+           screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
 /* `mask`, when true and the field isn't being actively edited, displays
@@ -102,7 +103,7 @@ static void draw(app_state_t *state, char spinner_ch)
             int width = tb_width() - 4;
             if (width < 1) width = 1;
 
-            widgets_draw_header(1, "steamscribe -- search for a game (F2 for settings)");
+            widgets_draw_header(1, "steamscribe -- search for a game (F2 settings, F3 browse your library by playtime)");
             tb_print(2, 3, TB_DEFAULT, TB_DEFAULT, "Game name >");
             widgets_draw_text_area(4, width, state->search_input, state->search_input_cursor);
             widgets_draw_status_bar(state->arena, state->status);
@@ -112,6 +113,17 @@ static void draw(app_state_t *state, char spinner_ch)
         case TUI_SCREEN_SELECT:
             widgets_draw_header(1, "Pick a game (Enter), Esc to search again, q to quit");
             widgets_draw_search_results(3, &state->search_results, state->select_cursor);
+            widgets_draw_status_bar(state->arena, state->status);
+            break;
+
+        case TUI_SCREEN_LOADING_LIBRARY:
+            widgets_draw_header(1, "Loading your library...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Fetching your owned games and playtime...", spinner_ch);
+            break;
+
+        case TUI_SCREEN_LIBRARY:
+            widgets_draw_header(1, "Your library, most played first -- Enter to pick, Esc to search instead, q to quit");
+            widgets_draw_library(3, &state->library, state->library_cursor);
             widgets_draw_status_bar(state->arena, state->status);
             break;
 
@@ -231,7 +243,7 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_RESULT:
-            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (c) copy, (s) save, (o) change your answers, (q) quit");
+            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit, (c) copy, (s) save, (o) change answers, (n) pick another game, (q) quit");
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
             widgets_draw_status_bar(state->arena, state->status);
             break;
@@ -305,6 +317,7 @@ typedef struct bg_result_t
     bool done;
     int rc;
     err_t err;
+    steam_library_t library;
     game_info_t game;
     theme_set_t themes;
     char **questions;
@@ -319,6 +332,29 @@ typedef struct bg_ctx_t
     const config_t *cfg;
     bg_result_t *result;
 } bg_ctx_t;
+
+static void *bg_fetch_library_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    steam_library_t library;
+    memset(&library, 0, sizeof(library));
+    int rc = pipeline_fetch_library(ctx->state->arena, ctx->cfg, &library, &err);
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0) result->library = library;
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
 
 static void *bg_load_game_thread(void *argp)
 {
@@ -737,7 +773,12 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
     pthread_join(thread, NULL);
     pthread_mutex_destroy(&result.mutex);
 
-    if (state->screen == TUI_SCREEN_LOADING_GAME)
+    if (state->screen == TUI_SCREEN_LOADING_LIBRARY)
+    {
+        if (result.rc == 0) tui_apply_library_loaded(state, result.library);
+        else tui_apply_library_load_failed(state, result.err.msg);
+    }
+    else if (state->screen == TUI_SCREEN_LOADING_GAME)
     {
         if (result.rc == 0) tui_apply_game_loaded(state, state->appid, result.game, result.themes);
         else tui_apply_game_load_failed(state, result.err.msg);
@@ -783,7 +824,8 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         {
             tui_screen_t loading_screen = state.screen;
             void *(*thread_fn)(void *) = bg_generate_review_thread;
-            if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
+            if (loading_screen == TUI_SCREEN_LOADING_LIBRARY) thread_fn = bg_fetch_library_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
             else if (loading_screen == TUI_SCREEN_LOADING_FOLLOWUP) thread_fn = bg_generate_followup_thread;
             else if (loading_screen == TUI_SCREEN_LOADING_SPOILER_PREDICT) thread_fn = bg_predict_spoiler_thread;
 
