@@ -626,6 +626,11 @@ static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
         return TUI_ACTION_COPY_REVIEW;
     }
 
+    if (ch == 's')
+    {
+        return TUI_ACTION_SAVE_REVIEW;
+    }
+
     if (ch == 'o')
     {
         /* Back through Liked/Disliked/Notes with everything you answered

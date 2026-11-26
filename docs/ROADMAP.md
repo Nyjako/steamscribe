@@ -88,7 +88,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Worker thread plus animated spinner during fetch, analyze and generate (pulled forward into M4 once local-model inference turned out slow enough on CPU to need it)
 - [x] Copy to clipboard (OSC 52, plus whichever of `wl-copy` / `xclip` / `pbcopy` is installed, tried in parallel since there's no reliable success signal from either)
 - [x] Edit in `$EDITOR`, then return to the result screen (TUI only; `--plain` has no post-review menu to hang this off of)
-- [ ] Save review to `~/.local/share/steamscribe/reviews/`
+- [x] Save review to `~/.local/share/steamscribe/reviews/` -- `s` on the TUI Result screen, named `<appid>-<date>.txt`; `--plain` has no post-review menu to hang this off of (same reasoning as edit-in-$EDITOR)
 - [x] Add your own custom like/dislike items in the checklist
 - [x] Vocabulary/style option (normal vs. simple everyday words) picked per review, right after Length, in both the TUI and `--plain` -- backed by a new `[review] default_vocab` config default (not a roadmap item originally, added on request)
 - [x] Move a checklist item to the other side (liked <-> disliked), for when the AI filed something under the wrong one of your own opinions -- in both the TUI (`m`) and `--plain` (not a roadmap item originally, added on request)
@@ -98,7 +98,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Theme checklist count is a genuinely variable 7-14 instead of always landing on exactly 7 -- a small local model given only a loose "5 to 8" range in the prompt text consistently settled on the low end regardless of how many distinct points the reviews actually supported, so the schema itself (for a schema-capable provider) now also sets `minItems`/`maxItems`
 - [x] `[steam] review_count` (how many player reviews to sample) is now editable from the TUI Settings screen, not just by hand-editing `config.ini`
 - [x] Error messages survive quitting: whatever's in the status bar (e.g. "Could not load game: ...") is now also printed to stderr once the terminal tears down, on a normal quit, Ctrl+C, or a fatal signal -- previously it only ever lived on the alternate screen, so Ctrl+C-ing out after an error silently discarded it
-- [ ] Friendly errors (no key, offline, game not found, rate-limited)
+- [x] Friendly errors: a missing Anthropic/OpenAI API key now fails fast with a precise message (e.g. "no Anthropic API key set -- export ANTHROPIC_API_KEY...") instead of round-tripping to an HTTP 401; a local OpenAI-compatible server (LM Studio etc., `base_url` set) is correctly left alone since it never needed a key. The shared HTTP layer (`net/http.c`, used by every Steam and LLM call) now gives specific wording for "offline" curl errors (DNS/connect/timeout), 401/403 ("check your API key"), 429 ("rate-limited... wait a bit"), and 5xx ("having trouble right now"), instead of a bare status code. Game-not-found was already friendly. Covered by `test_pipeline`
 - [x] ASan/UBSan CI job, no leaks or warnings (pulled forward into a `sanitize` CI job; the whole test suite passes clean under ASan/LSan/UBSan)
 
 **Done when:** you'd happily use it for your own reviews. **Tag v0.5.**
