@@ -24,6 +24,9 @@ static const char *DEFAULT_CONFIG_INI =
     "language    = english\n"
     "review_count = 200            ; reviews to analyze (half positive, half negative)\n"
     "cache_ttl_hours = 24\n"
+    "; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your\n"
+    "; playtime for this game. Also needs a free Steam Web API key in the STEAM_API_KEY\n"
+    "; env var. Both optional; the review is generated without playtime if either is unset.\n"
     "\n"
     "[review]\n"
     "default_length = short        ; short | medium | long\n"
@@ -39,6 +42,7 @@ typedef struct raw_config_t
     char *steam_language;
     char *steam_review_count;
     char *steam_cache_ttl_hours;
+    char *steam_id;
     char *review_default_length;
     char *review_default_tone;
     char *review_default_vocab;
@@ -57,6 +61,7 @@ static int steamscribe_ini_handler(void *user, const char *section, const char *
     else if (MATCH("steam", "language")) cfg->steam_language = strdup(value);
     else if (MATCH("steam", "review_count")) cfg->steam_review_count = strdup(value);
     else if (MATCH("steam", "cache_ttl_hours")) cfg->steam_cache_ttl_hours = strdup(value);
+    else if (MATCH("steam", "steam_id")) cfg->steam_id = strdup(value);
     else if (MATCH("review", "default_length")) cfg->review_default_length = strdup(value);
     else if (MATCH("review", "default_tone")) cfg->review_default_tone = strdup(value);
     else if (MATCH("review", "default_vocab")) cfg->review_default_vocab = strdup(value);
@@ -112,6 +117,7 @@ static void free_raw_config(raw_config_t *raw)
     free(raw->steam_language);
     free(raw->steam_review_count);
     free(raw->steam_cache_ttl_hours);
+    free(raw->steam_id);
     free(raw->review_default_length);
     free(raw->review_default_tone);
     free(raw->review_default_vocab);
@@ -136,6 +142,7 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
     out->steam_language = arena_strdup(arena, raw.steam_language ? raw.steam_language : "english");
     out->steam_review_count = raw.steam_review_count ? atoi(raw.steam_review_count) : 200;
     out->steam_cache_ttl_hours = raw.steam_cache_ttl_hours ? atoi(raw.steam_cache_ttl_hours) : 24;
+    out->steam_id = arena_strdup(arena, raw.steam_id ? raw.steam_id : "");
     out->review_default_length = arena_strdup(arena, raw.review_default_length ? raw.review_default_length : "short");
     out->review_default_tone = arena_strdup(arena, raw.review_default_tone ? raw.review_default_tone : "casual");
     out->review_default_vocab = arena_strdup(arena, raw.review_default_vocab ? raw.review_default_vocab : "normal");
@@ -144,8 +151,10 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
 
     const char *anthropic_key = getenv("ANTHROPIC_API_KEY");
     const char *openai_key = getenv("OPENAI_API_KEY");
+    const char *steam_key = getenv("STEAM_API_KEY");
     out->anthropic_api_key = arena_strdup(arena, anthropic_key ? anthropic_key : "");
     out->openai_api_key = arena_strdup(arena, openai_key ? openai_key : "");
+    out->steam_api_key = arena_strdup(arena, steam_key ? steam_key : "");
 
     out->verbose = false;
 
@@ -181,6 +190,8 @@ int config_save(const config_t *cfg, err_t *err)
     fprintf(fp, "language = %s\n", cfg->steam_language);
     fprintf(fp, "review_count = %d            ; reviews to analyze (half positive, half negative)\n", cfg->steam_review_count);
     fprintf(fp, "cache_ttl_hours = %d\n", cfg->steam_cache_ttl_hours);
+    if (cfg->steam_id[0]) fprintf(fp, "steam_id = %s          ; your own SteamID64 -- also needs STEAM_API_KEY in the environment\n", cfg->steam_id);
+    else fprintf(fp, "; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your playtime; also needs STEAM_API_KEY in the environment\n");
 
     fprintf(fp, "\n[review]\n");
     fprintf(fp, "default_length = %s        ; short | medium | long\n", cfg->review_default_length);

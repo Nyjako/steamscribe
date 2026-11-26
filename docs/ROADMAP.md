@@ -118,11 +118,19 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 
 ---
 
+## M7 – Post-v0.5 extras
+**Goal:** a few of the "Later / ideas" below that turned out worth doing sooner.
+
+- [x] Optional Steam Web API key to include your playtime ("After 120 hours…") -- your own free key (`STEAM_API_KEY`, env-only like the LLM keys) plus your SteamID64 (`[steam] steam_id` in config, not secret); best-effort like the follow-up questions, silently skipped if either is missing or the request fails. Fetched lazily right before generating (not during the game-load fetch), via `IPlayerService/GetOwnedGames`.
+- [ ] Steam BBCode output option (`[b]`, `[list]`)
+- [ ] Rating-style output (x/10) as an option
+
+**Done when:** all three above are merged.
+
+---
+
 ## Later / ideas
-- Optional Steam Web API key to include your playtime ("After 120 hours…")
-- Steam BBCode output option (`[b]`, `[list]`)
 - Review language selection (both for reading reviews and writing yours)
-- Rating-style output (x/10) as an option
 - History browser for saved reviews
 - Windows native support (replace termbox2 or use a Windows console backend)
 

@@ -390,6 +390,10 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     req.followup_answers = followup_answers;
     req.n_followup = n_followup;
 
+    steam_playtime_t playtime;
+    pipeline_fetch_playtime(cfg, appid, &playtime);
+    req.playtime_hours = playtime.found ? playtime.playtime_minutes / 60 : 0;
+
     char *review_text = NULL;
     if (review_generate(arena, provider, &llm_cfg, &req, &review_text, &err) != 0)
     {

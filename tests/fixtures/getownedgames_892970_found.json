@@ -1,0 +1,15 @@
+{
+  "response": {
+    "game_count": 1,
+    "games": [
+      {
+        "appid": 892970,
+        "playtime_forever": 7320,
+        "playtime_windows_forever": 7320,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "rtime_last_played": 1732000000
+      }
+    ]
+  }
+}

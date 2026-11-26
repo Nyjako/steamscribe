@@ -21,11 +21,16 @@ typedef struct config_t
     /* API keys, read only from the environment, never from the config file. */
     char *anthropic_api_key;  /* ANTHROPIC_API_KEY, may be empty */
     char *openai_api_key;     /* OPENAI_API_KEY, may be empty (fine for local backends) */
+    char *steam_api_key;      /* STEAM_API_KEY, may be empty -- only needed for playtime */
 
     /* [steam] */
     char *steam_language;
     int steam_review_count;
     int steam_cache_ttl_hours;
+    char *steam_id;           /* your own SteamID64, may be empty -- only needed for
+                                * playtime, paired with STEAM_API_KEY above. Not a
+                                * secret (it's just a numeric account id), so unlike the
+                                * API key it's fine to keep in config.ini. */
 
     /* [review] */
     char *review_default_length; /* "short" | "medium" | "long" */

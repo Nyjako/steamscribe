@@ -352,6 +352,10 @@ static void *bg_generate_review_thread(void *argp)
         req.followup_answers = ctx->state->n_followup_questions > 0 ? followup_answer_ptrs : NULL;
         req.n_followup = ctx->state->n_followup_questions;
 
+        steam_playtime_t playtime;
+        pipeline_fetch_playtime(ctx->cfg, ctx->state->appid, &playtime);
+        req.playtime_hours = playtime.found ? playtime.playtime_minutes / 60 : 0;
+
         rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
     }
 

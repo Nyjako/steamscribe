@@ -45,6 +45,7 @@ $ steamscribe valheim
 - Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- add your own items the AI didn't surface, or move one to the other side if the AI guessed your opinion wrong
 - A few optional, AI-generated follow-up questions tailored to what you checked (e.g. "Which structure did you build that made the resource gathering feel worth it?"), so your review can include specific detail a plain "anything else?" tends to miss -- skip any you don't want to answer
 - Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
+- Optionally mentions your own playtime for the game (e.g. "After 120 hours...") if you've set your SteamID64 and a free Steam Web API key -- skipped silently if you haven't
 - Edit the generated review in `$EDITOR`, copy it to your clipboard, regenerate, or go back and change your answers -- saving a copy locally is still ahead
 - Full cursor-based text editing everywhere you type -- arrow keys, Home/End, forward delete -- and the notes field is a real multi-line box (Enter for a new line, Ctrl+S to continue)
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
@@ -99,6 +100,9 @@ model    = claude-haiku-5-5
 language    = english
 review_count = 200            ; reviews to analyze (half positive, half negative)
 cache_ttl_hours = 24
+; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your
+; playtime for the game. Also needs a free Steam Web API key in STEAM_API_KEY below.
+; Both optional; the review just skips playtime if either is unset.
 
 [review]
 default_length = short        ; short | medium | long
@@ -106,11 +110,12 @@ default_tone   = casual       ; casual | neutral | enthusiastic
 default_vocab  = normal       ; normal | simple (plain, everyday words)
 ```
 
-API key, read from the environment (never stored in the config):
+API keys, read from the environment (never stored in the config):
 
 ```sh
 export ANTHROPIC_API_KEY=...   # provider = anthropic
 export OPENAI_API_KEY=...      # provider = openai (not needed for local Ollama)
+export STEAM_API_KEY=...       # optional -- only needed for playtime, alongside steam_id above
 ```
 
 ## Usage

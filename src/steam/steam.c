@@ -434,3 +434,53 @@ int steam_reviews_sample(arena_t *arena, uint32_t appid, const char *language, s
     out->total_negative = summary.total_negative;
     return 0;
 }
+
+int steam_parse_owned_games(const char *json_text, steam_playtime_t *out, err_t *err)
+{
+    out->found = false;
+    out->playtime_minutes = 0;
+
+    cJSON *root = cJSON_Parse(json_text);
+    if (!root)
+    {
+        err_set(err, -1, "invalid owned-games response JSON (got: %.80s)", json_text);
+        return -1;
+    }
+
+    cJSON *response = cJSON_GetObjectItemCaseSensitive(root, "response");
+    cJSON *games = response ? cJSON_GetObjectItemCaseSensitive(response, "games") : NULL;
+
+    if (cJSON_IsArray(games) && cJSON_GetArraySize(games) > 0)
+    {
+        cJSON *game = cJSON_GetArrayItem(games, 0);
+        cJSON *playtime = game ? cJSON_GetObjectItemCaseSensitive(game, "playtime_forever") : NULL;
+
+        if (cJSON_IsNumber(playtime))
+        {
+            out->found = true;
+            out->playtime_minutes = (int)playtime->valuedouble;
+        }
+    }
+
+    cJSON_Delete(root);
+    return 0;
+}
+
+int steam_fetch_playtime(const char *api_key, const char *steam_id, uint32_t appid, steam_playtime_t *out, err_t *err)
+{
+    char url[512];
+    snprintf(url, sizeof(url),
+             "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
+             "?key=%s&steamid=%s&appids_filter[0]=%u&include_appinfo=false&include_played_free_games=true&format=json",
+             api_key, steam_id, appid);
+
+    http_cfg_t cfg = http_cfg_default();
+    strbuf_t body;
+    strbuf_init(&body);
+
+    int rc = http_get(&cfg, url, &body, err);
+    if (rc == 0) rc = steam_parse_owned_games(strbuf_cstr(&body), out, err);
+
+    strbuf_free(&body);
+    return rc;
+}
