@@ -19,6 +19,10 @@
 #define TUI_SETTINGS_URL_CAP 256
 #define TUI_SETTINGS_NUM_CTX_CAP 16
 #define TUI_SETTINGS_REVIEW_COUNT_CAP 16
+#define TUI_SETTINGS_LANGUAGE_CAP 64
+#define TUI_SETTINGS_CACHE_TTL_CAP 16
+#define TUI_SETTINGS_STEAM_ID_CAP 32
+#define TUI_SETTINGS_STEAM_API_KEY_CAP 256
 #define TUI_CUSTOM_ITEM_CAP 256
 
 typedef enum
@@ -56,6 +60,13 @@ typedef enum
     TUI_SETTINGS_FIELD_BASE_URL,
     TUI_SETTINGS_FIELD_NUM_CTX,
     TUI_SETTINGS_FIELD_REVIEW_COUNT,
+    TUI_SETTINGS_FIELD_STEAM_LANGUAGE,
+    TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS,
+    TUI_SETTINGS_FIELD_STEAM_ID,
+    TUI_SETTINGS_FIELD_STEAM_API_KEY,
+    TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH,
+    TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE,
+    TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB,
     TUI_SETTINGS_FIELD_COUNT,
 } tui_settings_field_t;
 
@@ -151,6 +162,21 @@ typedef struct app_state_t
     char settings_review_count[TUI_SETTINGS_REVIEW_COUNT_CAP];
     size_t settings_review_count_len;
     size_t settings_review_count_cursor;
+    char settings_steam_language[TUI_SETTINGS_LANGUAGE_CAP];
+    size_t settings_steam_language_len;
+    size_t settings_steam_language_cursor;
+    char settings_steam_cache_ttl_hours[TUI_SETTINGS_CACHE_TTL_CAP];
+    size_t settings_steam_cache_ttl_hours_len;
+    size_t settings_steam_cache_ttl_hours_cursor;
+    char settings_steam_id[TUI_SETTINGS_STEAM_ID_CAP];
+    size_t settings_steam_id_len;
+    size_t settings_steam_id_cursor;
+    char settings_steam_api_key[TUI_SETTINGS_STEAM_API_KEY_CAP]; /* masked on screen except while editing */
+    size_t settings_steam_api_key_len;
+    size_t settings_steam_api_key_cursor;
+    int settings_review_length_index; /* into short/medium/long */
+    int settings_review_tone_index;   /* into casual/neutral/enthusiastic */
+    int settings_review_vocab_index;  /* into normal/simple */
 } app_state_t;
 
 /* Zeroes `state` and sets it up to start either on the Search screen

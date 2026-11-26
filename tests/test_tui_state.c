@@ -28,6 +28,9 @@ static config_t make_fake_config(arena_t *arena)
     cfg.steam_language = arena_strdup(arena, "english");
     cfg.steam_review_count = 200;
     cfg.steam_cache_ttl_hours = 24;
+    cfg.steam_id = arena_strdup(arena, "");
+    cfg.steam_api_key = arena_strdup(arena, "");
+    cfg.steam_api_key_from_env = false;
     cfg.review_default_length = arena_strdup(arena, "short");
     cfg.review_default_tone = arena_strdup(arena, "casual");
     cfg.review_default_vocab = arena_strdup(arena, "normal");
@@ -1017,6 +1020,13 @@ static int test_f2_opens_settings_prefilled_from_cfg(void)
     TEST_ASSERT(strcmp(state.settings_base_url, "") == 0);
     TEST_ASSERT(strcmp(state.settings_num_ctx, "8192") == 0);
     TEST_ASSERT(strcmp(state.settings_review_count, "200") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_language, "english") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_cache_ttl_hours, "24") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_id, "") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_api_key, "") == 0);
+    TEST_ASSERT(state.settings_review_length_index == 0); /* "short" */
+    TEST_ASSERT(state.settings_review_tone_index == 0);   /* "casual" */
+    TEST_ASSERT(state.settings_review_vocab_index == 0);  /* "normal" */
     /* cursor starts at the end of the pre-filled text, like any editor */
     TEST_ASSERT(state.settings_model_cursor == state.settings_model_len);
 
@@ -1051,10 +1061,24 @@ static int test_settings_field_navigation_and_provider_cycling(void)
     TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
     tui_handle_key(&state, 'j', 0);
     TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_LANGUAGE);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_ID);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_API_KEY);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB);
     tui_handle_key(&state, 'j', 0); /* bottom: no-op */
-    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB);
     tui_handle_key(&state, 'k', 0);
-    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE);
 
     arena_free(&arena);
     return 0;
@@ -1285,6 +1309,128 @@ static int test_settings_review_count_field_edits_and_commits(void)
     return 0;
 }
 
+static int test_settings_new_steam_and_review_fields_edit_and_commit(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    for (int i = 0; i < 5; i++) tui_handle_key(&state, 'j', 0); /* -> Steam language */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_LANGUAGE);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 'p', 0);
+    tui_handle_key(&state, 'o', 0);
+    tui_handle_key(&state, 'l', 0);
+    tui_handle_key(&state, 'i', 0);
+    tui_handle_key(&state, 's', 0);
+    tui_handle_key(&state, 'h', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_language, "polish") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Cache TTL hours */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, '4', 0);
+    tui_handle_key(&state, '8', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_cache_ttl_hours, "48") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Steam ID */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_ID);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 'a', 0); /* rejected: not a digit */
+    tui_handle_key(&state, '7', 0);
+    tui_handle_key(&state, '6', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_id, "76") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Steam API key */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_API_KEY);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 'A', 0);
+    tui_handle_key(&state, 'C', 0);
+    tui_handle_key(&state, '1', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_api_key, "AC1") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Length (short -> medium) */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH);
+    tui_handle_key(&state, 'l', 0);
+    TEST_ASSERT(state.settings_review_length_index == 1);
+
+    tui_handle_key(&state, 'j', 0); /* -> Tone (casual -> neutral) */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE);
+    tui_handle_key(&state, 'l', 0);
+    TEST_ASSERT(state.settings_review_tone_index == 1);
+
+    tui_handle_key(&state, 'j', 0); /* -> Vocab (normal -> simple) */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB);
+    tui_handle_key(&state, 'l', 0);
+    TEST_ASSERT(state.settings_review_vocab_index == 1);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
+
+    TEST_ASSERT(strcmp(cfg.steam_language, "polish") == 0);
+    TEST_ASSERT(cfg.steam_cache_ttl_hours == 48);
+    TEST_ASSERT(strcmp(cfg.steam_id, "76") == 0);
+    TEST_ASSERT(strcmp(cfg.steam_api_key, "AC1") == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == false);
+    TEST_ASSERT(strcmp(cfg.review_default_length, "medium") == 0);
+    TEST_ASSERT(strcmp(cfg.review_default_tone, "neutral") == 0);
+    TEST_ASSERT(strcmp(cfg.review_default_vocab, "simple") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_unedited_steam_api_key_keeps_its_env_source(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    cfg.steam_api_key = arena_strdup(&arena, "env-sourced-key");
+    cfg.steam_api_key_from_env = true;
+
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    /* pre-filled from cfg, same as it would be either way */
+    TEST_ASSERT(strcmp(state.settings_steam_api_key, "env-sourced-key") == 0);
+
+    /* edit something unrelated (Model), then save, without ever touching
+     * the key field */
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_MODEL);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 'x', 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
+
+    /* the key and its env provenance are untouched -- never silently
+     * copied into config.ini just because some other field was saved */
+    TEST_ASSERT(strcmp(cfg.steam_api_key, "env-sourced-key") == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == true);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_text_field_arrow_keys_edit_in_the_middle(void)
 {
     arena_t arena;
@@ -1393,6 +1539,8 @@ int main(void)
     if (test_settings_save_failed_stays_on_settings_with_status()) return 1;
     if (test_settings_q_quits_in_nav_mode()) return 1;
     if (test_settings_review_count_field_edits_and_commits()) return 1;
+    if (test_settings_new_steam_and_review_fields_edit_and_commit()) return 1;
+    if (test_settings_unedited_steam_api_key_keeps_its_env_source()) return 1;
     if (test_text_field_arrow_keys_edit_in_the_middle()) return 1;
 
     printf("all tests passed\n");

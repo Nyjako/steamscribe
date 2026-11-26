@@ -9,6 +9,15 @@
 static const char *SETTINGS_PROVIDERS[] = {"anthropic", "openai", "ollama"};
 #define SETTINGS_PROVIDER_COUNT (sizeof(SETTINGS_PROVIDERS) / sizeof(SETTINGS_PROVIDERS[0]))
 
+static const char *SETTINGS_REVIEW_LENGTHS[] = {"short", "medium", "long"};
+#define SETTINGS_REVIEW_LENGTH_COUNT (sizeof(SETTINGS_REVIEW_LENGTHS) / sizeof(SETTINGS_REVIEW_LENGTHS[0]))
+
+static const char *SETTINGS_REVIEW_TONES[] = {"casual", "neutral", "enthusiastic"};
+#define SETTINGS_REVIEW_TONE_COUNT (sizeof(SETTINGS_REVIEW_TONES) / sizeof(SETTINGS_REVIEW_TONES[0]))
+
+static const char *SETTINGS_REVIEW_VOCABS[] = {"normal", "simple"};
+#define SETTINGS_REVIEW_VOCAB_COUNT (sizeof(SETTINGS_REVIEW_VOCABS) / sizeof(SETTINGS_REVIEW_VOCABS[0]))
+
 static review_tone_t tone_from_config(const config_t *cfg)
 {
     if (strcmp(cfg->review_default_tone, "neutral") == 0) return REVIEW_TONE_NEUTRAL;
@@ -521,6 +530,15 @@ static void copy_into(char *dst, size_t dst_cap, size_t *dst_len, size_t *dst_cu
     *dst_cursor = len;
 }
 
+static int settings_index_of(const char *const *options, size_t count, const char *value)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        if (strcmp(value, options[i]) == 0) return (int)i;
+    }
+    return 0;
+}
+
 static void settings_enter(app_state_t *state)
 {
     state->settings_return_screen = state->screen;
@@ -529,18 +547,16 @@ static void settings_enter(app_state_t *state)
     state->settings_editing = false;
     state->status[0] = '\0';
 
-    state->settings_provider_index = 0;
-    for (size_t i = 0; i < SETTINGS_PROVIDER_COUNT; i++)
-    {
-        if (strcmp(state->cfg->llm_provider, SETTINGS_PROVIDERS[i]) == 0)
-        {
-            state->settings_provider_index = (int)i;
-            break;
-        }
-    }
+    state->settings_provider_index = settings_index_of(SETTINGS_PROVIDERS, SETTINGS_PROVIDER_COUNT, state->cfg->llm_provider);
+    state->settings_review_length_index = settings_index_of(SETTINGS_REVIEW_LENGTHS, SETTINGS_REVIEW_LENGTH_COUNT, state->cfg->review_default_length);
+    state->settings_review_tone_index = settings_index_of(SETTINGS_REVIEW_TONES, SETTINGS_REVIEW_TONE_COUNT, state->cfg->review_default_tone);
+    state->settings_review_vocab_index = settings_index_of(SETTINGS_REVIEW_VOCABS, SETTINGS_REVIEW_VOCAB_COUNT, state->cfg->review_default_vocab);
 
     copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, &state->settings_model_cursor, state->cfg->llm_model);
     copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, &state->settings_base_url_cursor, state->cfg->llm_base_url);
+    copy_into(state->settings_steam_language, sizeof(state->settings_steam_language), &state->settings_steam_language_len, &state->settings_steam_language_cursor, state->cfg->steam_language);
+    copy_into(state->settings_steam_id, sizeof(state->settings_steam_id), &state->settings_steam_id_len, &state->settings_steam_id_cursor, state->cfg->steam_id);
+    copy_into(state->settings_steam_api_key, sizeof(state->settings_steam_api_key), &state->settings_steam_api_key_len, &state->settings_steam_api_key_cursor, state->cfg->steam_api_key);
 
     char num_str[TUI_SETTINGS_NUM_CTX_CAP];
     snprintf(num_str, sizeof(num_str), "%d", state->cfg->llm_num_ctx);
@@ -548,6 +564,10 @@ static void settings_enter(app_state_t *state)
 
     snprintf(num_str, sizeof(num_str), "%d", state->cfg->steam_review_count);
     copy_into(state->settings_review_count, sizeof(state->settings_review_count), &state->settings_review_count_len, &state->settings_review_count_cursor, num_str);
+
+    char ttl_str[TUI_SETTINGS_CACHE_TTL_CAP];
+    snprintf(ttl_str, sizeof(ttl_str), "%d", state->cfg->steam_cache_ttl_hours);
+    copy_into(state->settings_steam_cache_ttl_hours, sizeof(state->settings_steam_cache_ttl_hours), &state->settings_steam_cache_ttl_hours_len, &state->settings_steam_cache_ttl_hours_cursor, ttl_str);
 }
 
 /* Reverts one field's edit buffer back to *cfg's value (Esc-while-editing). */
@@ -571,6 +591,19 @@ static void settings_reset_field(app_state_t *state, tui_settings_field_t field)
             snprintf(num_str, sizeof(num_str), "%d", state->cfg->steam_review_count);
             copy_into(state->settings_review_count, sizeof(state->settings_review_count), &state->settings_review_count_len, &state->settings_review_count_cursor, num_str);
             break;
+        case TUI_SETTINGS_FIELD_STEAM_LANGUAGE:
+            copy_into(state->settings_steam_language, sizeof(state->settings_steam_language), &state->settings_steam_language_len, &state->settings_steam_language_cursor, state->cfg->steam_language);
+            break;
+        case TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS:
+            snprintf(num_str, sizeof(num_str), "%d", state->cfg->steam_cache_ttl_hours);
+            copy_into(state->settings_steam_cache_ttl_hours, sizeof(state->settings_steam_cache_ttl_hours), &state->settings_steam_cache_ttl_hours_len, &state->settings_steam_cache_ttl_hours_cursor, num_str);
+            break;
+        case TUI_SETTINGS_FIELD_STEAM_ID:
+            copy_into(state->settings_steam_id, sizeof(state->settings_steam_id), &state->settings_steam_id_len, &state->settings_steam_id_cursor, state->cfg->steam_id);
+            break;
+        case TUI_SETTINGS_FIELD_STEAM_API_KEY:
+            copy_into(state->settings_steam_api_key, sizeof(state->settings_steam_api_key), &state->settings_steam_api_key_len, &state->settings_steam_api_key_cursor, state->cfg->steam_api_key);
+            break;
         default:
             break;
     }
@@ -585,6 +618,22 @@ static void settings_commit_to_cfg(app_state_t *state)
     state->cfg->llm_base_url = arena_strdup(state->arena, state->settings_base_url);
     state->cfg->llm_num_ctx = state->settings_num_ctx_len > 0 ? atoi(state->settings_num_ctx) : 0;
     state->cfg->steam_review_count = state->settings_review_count_len > 0 ? atoi(state->settings_review_count) : state->cfg->steam_review_count;
+    state->cfg->steam_language = arena_strdup(state->arena, state->settings_steam_language);
+    state->cfg->steam_cache_ttl_hours = state->settings_steam_cache_ttl_hours_len > 0 ? atoi(state->settings_steam_cache_ttl_hours) : state->cfg->steam_cache_ttl_hours;
+    state->cfg->steam_id = arena_strdup(state->arena, state->settings_steam_id);
+    state->cfg->review_default_length = arena_strdup(state->arena, SETTINGS_REVIEW_LENGTHS[state->settings_review_length_index]);
+    state->cfg->review_default_tone = arena_strdup(state->arena, SETTINGS_REVIEW_TONES[state->settings_review_tone_index]);
+    state->cfg->review_default_vocab = arena_strdup(state->arena, SETTINGS_REVIEW_VOCABS[state->settings_review_vocab_index]);
+
+    /* Only touch the key's storage if this field was actually edited this
+     * session -- otherwise an unrelated Ctrl+S (e.g. just changing Model)
+     * would silently copy an env-sourced key into config.ini, which was
+     * never asked for. */
+    if (strcmp(state->settings_steam_api_key, state->cfg->steam_api_key) != 0)
+    {
+        state->cfg->steam_api_key = arena_strdup(state->arena, state->settings_steam_api_key);
+        state->cfg->steam_api_key_from_env = false;
+    }
 }
 
 static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_t key)
@@ -607,6 +656,18 @@ static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_
             case TUI_SETTINGS_FIELD_REVIEW_COUNT:
                 f = (text_field_t){state->settings_review_count, sizeof(state->settings_review_count), &state->settings_review_count_len, &state->settings_review_count_cursor};
                 break;
+            case TUI_SETTINGS_FIELD_STEAM_LANGUAGE:
+                f = (text_field_t){state->settings_steam_language, sizeof(state->settings_steam_language), &state->settings_steam_language_len, &state->settings_steam_language_cursor};
+                break;
+            case TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS:
+                f = (text_field_t){state->settings_steam_cache_ttl_hours, sizeof(state->settings_steam_cache_ttl_hours), &state->settings_steam_cache_ttl_hours_len, &state->settings_steam_cache_ttl_hours_cursor};
+                break;
+            case TUI_SETTINGS_FIELD_STEAM_ID:
+                f = (text_field_t){state->settings_steam_id, sizeof(state->settings_steam_id), &state->settings_steam_id_len, &state->settings_steam_id_cursor};
+                break;
+            case TUI_SETTINGS_FIELD_STEAM_API_KEY:
+                f = (text_field_t){state->settings_steam_api_key, sizeof(state->settings_steam_api_key), &state->settings_steam_api_key_len, &state->settings_steam_api_key_cursor};
+                break;
             default:
                 state->settings_editing = false;
                 return TUI_ACTION_NONE;
@@ -625,7 +686,8 @@ static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_
             return TUI_ACTION_NONE;
         }
 
-        bool numeric_only = (state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX || state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+        bool numeric_only = (state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX || state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT ||
+                              state->settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS || state->settings_field == TUI_SETTINGS_FIELD_STEAM_ID);
         handle_text_field_key(&f, ch, key, numeric_only);
         return TUI_ACTION_NONE;
     }
@@ -661,15 +723,41 @@ static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_
         return TUI_ACTION_NONE;
     }
 
-    if (state->settings_field == TUI_SETTINGS_FIELD_PROVIDER)
+    /* Provider, Review length/tone/vocab are all fixed-choice fields
+     * cycled with h/l or the arrows, rather than free-text edited. */
+    int *cycle_index = NULL;
+    size_t cycle_count = 0;
+    switch (state->settings_field)
+    {
+        case TUI_SETTINGS_FIELD_PROVIDER:
+            cycle_index = &state->settings_provider_index;
+            cycle_count = SETTINGS_PROVIDER_COUNT;
+            break;
+        case TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH:
+            cycle_index = &state->settings_review_length_index;
+            cycle_count = SETTINGS_REVIEW_LENGTH_COUNT;
+            break;
+        case TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE:
+            cycle_index = &state->settings_review_tone_index;
+            cycle_count = SETTINGS_REVIEW_TONE_COUNT;
+            break;
+        case TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB:
+            cycle_index = &state->settings_review_vocab_index;
+            cycle_count = SETTINGS_REVIEW_VOCAB_COUNT;
+            break;
+        default:
+            break;
+    }
+
+    if (cycle_index)
     {
         if (key == TUI_KEY_ARROW_LEFT || ch == 'h')
         {
-            state->settings_provider_index = (state->settings_provider_index + (int)SETTINGS_PROVIDER_COUNT - 1) % (int)SETTINGS_PROVIDER_COUNT;
+            *cycle_index = (*cycle_index + (int)cycle_count - 1) % (int)cycle_count;
         }
         else if (key == TUI_KEY_ARROW_RIGHT || ch == 'l' || key == TUI_KEY_ENTER)
         {
-            state->settings_provider_index = (state->settings_provider_index + 1) % (int)SETTINGS_PROVIDER_COUNT;
+            *cycle_index = (*cycle_index + 1) % (int)cycle_count;
         }
         return TUI_ACTION_NONE;
     }

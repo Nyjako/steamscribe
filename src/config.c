@@ -4,10 +4,13 @@
 
 #include <goblin/appdirs.h>
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+
+#include "util/secret_crypto.h"
 
 #define CONFIG_APP_NAME "steamscribe"
 
@@ -25,8 +28,11 @@ static const char *DEFAULT_CONFIG_INI =
     "review_count = 200            ; reviews to analyze (half positive, half negative)\n"
     "cache_ttl_hours = 24\n"
     "; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your\n"
-    "; playtime for this game. Also needs a free Steam Web API key in the STEAM_API_KEY\n"
-    "; env var. Both optional; the review is generated without playtime if either is unset.\n"
+    "; playtime for this game. Also needs a free Steam Web API key, either in the\n"
+    "; STEAM_API_KEY env var, or pasted in plain below (it's encrypted at rest on the\n"
+    "; next launch -- see docs/DESIGN.md). Both steam_id and a key are optional; the\n"
+    "; review is generated without playtime if either is unset.\n"
+    "; steam_api_key = ...\n"
     "\n"
     "[review]\n"
     "default_length = short        ; short | medium | long\n"
@@ -43,6 +49,7 @@ typedef struct raw_config_t
     char *steam_review_count;
     char *steam_cache_ttl_hours;
     char *steam_id;
+    char *steam_api_key;
     char *review_default_length;
     char *review_default_tone;
     char *review_default_vocab;
@@ -62,6 +69,7 @@ static int steamscribe_ini_handler(void *user, const char *section, const char *
     else if (MATCH("steam", "review_count")) cfg->steam_review_count = strdup(value);
     else if (MATCH("steam", "cache_ttl_hours")) cfg->steam_cache_ttl_hours = strdup(value);
     else if (MATCH("steam", "steam_id")) cfg->steam_id = strdup(value);
+    else if (MATCH("steam", "steam_api_key")) cfg->steam_api_key = strdup(value);
     else if (MATCH("review", "default_length")) cfg->review_default_length = strdup(value);
     else if (MATCH("review", "default_tone")) cfg->review_default_tone = strdup(value);
     else if (MATCH("review", "default_vocab")) cfg->review_default_vocab = strdup(value);
@@ -118,6 +126,7 @@ static void free_raw_config(raw_config_t *raw)
     free(raw->steam_review_count);
     free(raw->steam_cache_ttl_hours);
     free(raw->steam_id);
+    free(raw->steam_api_key);
     free(raw->review_default_length);
     free(raw->review_default_tone);
     free(raw->review_default_vocab);
@@ -147,25 +156,69 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
     out->review_default_tone = arena_strdup(arena, raw.review_default_tone ? raw.review_default_tone : "casual");
     out->review_default_vocab = arena_strdup(arena, raw.review_default_vocab ? raw.review_default_vocab : "normal");
 
-    free_raw_config(&raw);
-
     const char *anthropic_key = getenv("ANTHROPIC_API_KEY");
     const char *openai_key = getenv("OPENAI_API_KEY");
-    const char *steam_key = getenv("STEAM_API_KEY");
+    const char *steam_key_env = getenv("STEAM_API_KEY");
     out->anthropic_api_key = arena_strdup(arena, anthropic_key ? anthropic_key : "");
     out->openai_api_key = arena_strdup(arena, openai_key ? openai_key : "");
-    out->steam_api_key = arena_strdup(arena, steam_key ? steam_key : "");
+
+    bool needs_encrypt_rewrite = false;
+    if (steam_key_env && steam_key_env[0])
+    {
+        out->steam_api_key = arena_strdup(arena, steam_key_env);
+        out->steam_api_key_from_env = true;
+    }
+    else if (raw.steam_api_key && raw.steam_api_key[0])
+    {
+        out->steam_api_key_from_env = false;
+
+        if (secret_crypto_is_encrypted(raw.steam_api_key))
+        {
+            uint8_t key[SECRET_CRYPTO_KEY_LEN];
+            char *decrypted = NULL;
+            err_t crypto_err;
+            err_clear(&crypto_err);
+            if (secret_crypto_load_or_create_key(key, &crypto_err) == 0 && secret_crypto_decrypt_from_text(arena, key, raw.steam_api_key, &decrypted) == 0)
+                out->steam_api_key = decrypted;
+            else
+                out->steam_api_key = arena_strdup(arena, ""); /* corrupted/undecryptable -- best-effort, never fatal */
+        }
+        else
+        {
+            /* Freshly pasted plaintext -- use it as-is this run, and
+             * rewrite config.ini with the encrypted form below so it
+             * doesn't keep sitting there in plaintext past this launch. */
+            out->steam_api_key = arena_strdup(arena, raw.steam_api_key);
+            needs_encrypt_rewrite = true;
+        }
+    }
+    else
+    {
+        out->steam_api_key = arena_strdup(arena, "");
+        out->steam_api_key_from_env = false;
+    }
+
+    free_raw_config(&raw);
 
     out->verbose = false;
+
+    if (needs_encrypt_rewrite)
+    {
+        err_t save_err;
+        err_clear(&save_err);
+        config_save(out, &save_err); /* best-effort -- worst case, tried again next launch */
+    }
 
     return 0;
 }
 
-/* Regenerates config.ini from `cfg`'s current values (API keys are never
- * written -- they only ever come from the environment). This replaces
- * whatever was in the file, including any comments the user added, which
- * is an acceptable trade-off for a config file the TUI's Settings screen
- * can also write. */
+/* Regenerates config.ini from `cfg`'s current values. The Anthropic/OpenAI
+ * keys are never written (env-only, same as before); steam_api_key is
+ * written encrypted at rest (see util/secret_crypto.h) unless it came from
+ * the environment this run, in which case it's left out just like the
+ * other keys. This replaces whatever was in the file, including any
+ * comments the user added, which is an acceptable trade-off for a config
+ * file the TUI's Settings screen can also write. */
 int config_save(const config_t *cfg, err_t *err)
 {
     char *path = get_config_path(err);
@@ -190,8 +243,33 @@ int config_save(const config_t *cfg, err_t *err)
     fprintf(fp, "language = %s\n", cfg->steam_language);
     fprintf(fp, "review_count = %d            ; reviews to analyze (half positive, half negative)\n", cfg->steam_review_count);
     fprintf(fp, "cache_ttl_hours = %d\n", cfg->steam_cache_ttl_hours);
-    if (cfg->steam_id[0]) fprintf(fp, "steam_id = %s          ; your own SteamID64 -- also needs STEAM_API_KEY in the environment\n", cfg->steam_id);
-    else fprintf(fp, "; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your playtime; also needs STEAM_API_KEY in the environment\n");
+    if (cfg->steam_id[0]) fprintf(fp, "steam_id = %s          ; your own SteamID64 -- also needs a Steam Web API key below\n", cfg->steam_id);
+    else fprintf(fp, "; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your playtime; also needs a Steam Web API key below\n");
+
+    if (cfg->steam_api_key_from_env)
+    {
+        fprintf(fp, "; steam_api_key is set via the STEAM_API_KEY environment variable -- not stored here\n");
+    }
+    else if (cfg->steam_api_key[0])
+    {
+        uint8_t key[SECRET_CRYPTO_KEY_LEN];
+        err_t key_err;
+        err_clear(&key_err);
+        char *encrypted = (secret_crypto_load_or_create_key(key, &key_err) == 0) ? secret_crypto_encrypt_to_text(key, cfg->steam_api_key) : NULL;
+        if (encrypted)
+        {
+            fprintf(fp, "steam_api_key = %s   ; encrypted at rest -- paste a plain key here and it's encrypted on next launch\n", encrypted);
+            free(encrypted);
+        }
+        else
+        {
+            fprintf(fp, "; steam_api_key could not be encrypted -- not saved this time, try again\n");
+        }
+    }
+    else
+    {
+        fprintf(fp, "; steam_api_key = ...            ; your free Steam Web API key -- paste it plain, it's encrypted on next launch\n");
+    }
 
     fprintf(fp, "\n[review]\n");
     fprintf(fp, "default_length = %s        ; short | medium | long\n", cfg->review_default_length);

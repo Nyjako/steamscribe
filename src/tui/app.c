@@ -65,11 +65,29 @@ static bool is_loading_screen(tui_screen_t screen)
     return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_SPOILER_PREDICT || screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
-static void draw_settings_field(int y, const char *label, const char *value, size_t cursor, bool focused, bool editing)
+/* `mask`, when true and the field isn't being actively edited, displays
+ * one asterisk per character instead of `value` itself -- so a secret
+ * typed in here (the Steam API key) isn't left sitting on screen once you
+ * tab away from it, while still showing it plainly while you're typing or
+ * pasting it in, to actually see what you entered. The substitution is
+ * 1:1 so the cursor math below doesn't need to change for it. */
+static void draw_settings_field(int y, const char *label, const char *value, size_t cursor, bool focused, bool editing, bool mask)
 {
     uintattr_t fg = focused ? TB_BLACK : TB_DEFAULT;
     uintattr_t bg = focused ? TB_CYAN : TB_DEFAULT;
-    tb_printf(2, y, fg, bg, "%-10s %s", label, value);
+
+    const char *shown = value;
+    char masked[128];
+    if (mask && !editing && value[0])
+    {
+        size_t n = strlen(value);
+        if (n >= sizeof(masked)) n = sizeof(masked) - 1;
+        memset(masked, '*', n);
+        masked[n] = '\0';
+        shown = masked;
+    }
+
+    tb_printf(2, y, fg, bg, "%-10s %s", label, shown);
     if (focused && editing) tb_set_cursor(2 + 11 + (int)cursor, y);
 }
 
@@ -220,18 +238,31 @@ static void draw(app_state_t *state, char spinner_ch)
 
         case TUI_SCREEN_SETTINGS:
         {
-            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles provider, Enter edits, Ctrl+S saves, Esc cancels");
+            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles choices, Enter edits text, Ctrl+S saves, Esc cancels");
 
             static const char *provider_names[] = {"anthropic", "openai", "ollama"};
-            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false);
-            draw_settings_field(4, "Model:", state->settings_model, state->settings_model_cursor, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing);
-            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_base_url_cursor, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing);
-            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_num_ctx_cursor, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing);
-            draw_settings_field(7, "Reviews:", state->settings_review_count, state->settings_review_count_cursor, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT, state->settings_editing);
+            static const char *length_names[] = {"short", "medium", "long"};
+            static const char *tone_names[] = {"casual", "neutral", "enthusiastic"};
+            static const char *vocab_names[] = {"normal", "simple"};
 
-            tb_print(2, 9, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
-            tb_print(2, 10, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
-            tb_print(2, 11, TB_DEFAULT, TB_DEFAULT, "API keys come only from ANTHROPIC_API_KEY / OPENAI_API_KEY -- not editable here.");
+            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false, false);
+            draw_settings_field(4, "Model:", state->settings_model, state->settings_model_cursor, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing, false);
+            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_base_url_cursor, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing, false);
+            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_num_ctx_cursor, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing, false);
+            draw_settings_field(7, "Reviews:", state->settings_review_count, state->settings_review_count_cursor, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT, state->settings_editing, false);
+            draw_settings_field(8, "Language:", state->settings_steam_language, state->settings_steam_language_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_LANGUAGE, state->settings_editing, false);
+            draw_settings_field(9, "Cache TTL:", state->settings_steam_cache_ttl_hours, state->settings_steam_cache_ttl_hours_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS, state->settings_editing, false);
+            draw_settings_field(10, "Steam ID:", state->settings_steam_id, state->settings_steam_id_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_ID, state->settings_editing, false);
+            draw_settings_field(11, "Steam key:", state->settings_steam_api_key, state->settings_steam_api_key_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_API_KEY, state->settings_editing, true);
+            draw_settings_field(12, "Length:", length_names[state->settings_review_length_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH, false, false);
+            draw_settings_field(13, "Tone:", tone_names[state->settings_review_tone_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE, false, false);
+            draw_settings_field(14, "Vocab:", vocab_names[state->settings_review_vocab_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB, false, false);
+
+            tb_print(2, 16, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
+            tb_print(2, 17, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
+            tb_print(2, 18, TB_DEFAULT, TB_DEFAULT, "Steam ID/key: your own SteamID64 + a Steam Web API key -- enables playtime in reviews.");
+            tb_print(2, 19, TB_DEFAULT, TB_DEFAULT, "Steam key is encrypted at rest once saved. Anthropic/OpenAI keys stay env-only, not here.");
+            if (state->cfg->steam_api_key_from_env) tb_print(2, 20, TB_DEFAULT, TB_DEFAULT, "Steam key is currently set via STEAM_API_KEY in the environment (takes priority over this).");
             widgets_draw_status_bar(state->arena, state->status);
             break;
         }
