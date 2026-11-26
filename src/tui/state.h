@@ -30,6 +30,7 @@ typedef enum
     TUI_SCREEN_DISLIKED,
     TUI_SCREEN_LOADING_FOLLOWUP,
     TUI_SCREEN_NOTES,
+    TUI_SCREEN_LOADING_SPOILER_PREDICT,
     TUI_SCREEN_LOADING_REVIEW,
     TUI_SCREEN_RESULT,
     TUI_SCREEN_SETTINGS,
@@ -65,6 +66,7 @@ typedef enum
     TUI_ACTION_SEARCH,          /* run a search for state->search_input */
     TUI_ACTION_LOAD_GAME,       /* fetch game info + themes for state->appid */
     TUI_ACTION_GENERATE_FOLLOWUP, /* generate optional follow-up questions from state->themes */
+    TUI_ACTION_PREDICT_SPOILER, /* best-guess the Spoiler step's pre-fill from state's notes/follow-up answers */
     TUI_ACTION_GENERATE_REVIEW, /* call the LLM with state's notes/recommend/length/tone */
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
@@ -173,6 +175,8 @@ void tui_apply_game_loaded(app_state_t *state, uint32_t appid, game_info_t game,
 void tui_apply_game_load_failed(app_state_t *state, const char *message);
 void tui_apply_followup_generated(app_state_t *state, char **questions, size_t count);
 void tui_apply_followup_failed(app_state_t *state);
+void tui_apply_spoiler_predicted(app_state_t *state, const char *guess);
+void tui_apply_spoiler_predict_failed(app_state_t *state);
 void tui_apply_review_generated(app_state_t *state, char *review_text);
 void tui_apply_review_failed(app_state_t *state, const char *message);
 void tui_apply_settings_saved(app_state_t *state);

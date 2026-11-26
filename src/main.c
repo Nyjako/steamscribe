@@ -9,6 +9,7 @@
 #include "core/followup.h"
 #include "core/pipeline.h"
 #include "core/review.h"
+#include "core/spoiler_predict.h"
 #include "core/themes.h"
 #include "llm/llm.h"
 #include "net/http.h"
@@ -388,7 +389,16 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     read_line(format_line, sizeof(format_line));
     bool bbcode = (format_line[0] == 'b' || format_line[0] == 'B');
 
-    char *spoiler_guess = review_predict_spoiler(arena, notes, (const char *const *)followup_answers, n_followup);
+    char *spoiler_guess = NULL;
+    err_t spoiler_predict_err;
+    err_clear(&spoiler_predict_err);
+    if (spoiler_predict_generate(arena, provider, &llm_cfg, game.name, notes, (const char *const *)followup_answers, n_followup, &spoiler_guess, &spoiler_predict_err) != 0)
+    {
+        /* Best-effort and optional: fall back to no guess rather than
+         * block the flow over something that was never required. */
+        spoiler_guess = "";
+    }
+
     if (spoiler_guess[0]) printf("Spoiler details, optional -- suggested: \"%s\"\n(blank = use that, '-' = none, or type your own) > ", spoiler_guess);
     else printf("Spoiler details, optional (blank skips) > ");
     fflush(stdout);

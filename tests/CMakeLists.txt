@@ -76,6 +76,20 @@ target_compile_options(test_followup PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_followup COMMAND test_followup)
 
+add_executable(test_spoiler_predict
+    test_spoiler_predict.c
+    ${CMAKE_SOURCE_DIR}/src/core/spoiler_predict.c
+    ${CMAKE_SOURCE_DIR}/src/llm/fake.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c
+    ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
+    ${CMAKE_SOURCE_DIR}/src/util/error.c
+    ${CMAKE_SOURCE_DIR}/src/util/json_fence.c)
+target_include_directories(test_spoiler_predict PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${cjson_SOURCE_DIR})
+target_link_libraries(test_spoiler_predict PRIVATE cjson)
+target_compile_options(test_spoiler_predict PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_spoiler_predict COMMAND test_spoiler_predict)
+
 add_executable(test_text
     test_text.c
     ${CMAKE_SOURCE_DIR}/src/util/text.c
@@ -115,7 +129,6 @@ add_executable(test_tui_state
     test_tui_state.c
     ${CMAKE_SOURCE_DIR}/src/tui/state.c
     ${CMAKE_SOURCE_DIR}/src/core/themes.c
-    ${CMAKE_SOURCE_DIR}/src/core/review.c
     ${CMAKE_SOURCE_DIR}/src/util/arena.c
     ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
     ${CMAKE_SOURCE_DIR}/src/util/error.c
