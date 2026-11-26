@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #include "net/http.h"
+#include "util/debug_log.h"
 
 #define OLLAMA_DEFAULT_BASE_URL "http://localhost:11434"
 
@@ -67,6 +68,9 @@ static int ollama_chat(const llm_cfg_t *cfg, const char *system, const char *use
 
     if (rc != 0)
     {
+        /* Ollama's own error body (e.g. a context-size overflow) is far more
+         * useful than the generic "HTTP 400 from ..." err already has. */
+        debug_logf("ollama error response body: %s", strbuf_cstr(&response));
         strbuf_free(&response);
         return rc;
     }
