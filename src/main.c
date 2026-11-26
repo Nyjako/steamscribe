@@ -388,10 +388,14 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     read_line(format_line, sizeof(format_line));
     bool bbcode = (format_line[0] == 'b' || format_line[0] == 'B');
 
-    printf("Spoiler details, optional (blank skips) > ");
+    char *spoiler_guess = review_predict_spoiler(arena, notes, (const char *const *)followup_answers, n_followup);
+    if (spoiler_guess[0]) printf("Spoiler details, optional -- suggested: \"%s\"\n(blank = use that, '-' = none, or type your own) > ", spoiler_guess);
+    else printf("Spoiler details, optional (blank skips) > ");
     fflush(stdout);
     char spoiler_notes[512];
     read_line(spoiler_notes, sizeof(spoiler_notes));
+    if (spoiler_notes[0] == '\0' && spoiler_guess[0]) snprintf(spoiler_notes, sizeof(spoiler_notes), "%s", spoiler_guess);
+    else if (strcmp(spoiler_notes, "-") == 0) spoiler_notes[0] = '\0';
 
     review_tone_t tone = REVIEW_TONE_CASUAL;
     if (strcmp(cfg->review_default_tone, "neutral") == 0) tone = REVIEW_TONE_NEUTRAL;

@@ -215,6 +215,17 @@ spoiler content always landing at the end rather than inline with the surroundin
 The format choice only affects this one block -- the main review body's wording is the
 same either way; BBCode markup elsewhere (bold, lists, ...) was explicitly out of scope.
 
+The Spoiler step also pre-fills itself with a best guess (`review_predict_spoiler()`,
+also pure and unit-tested): a plain keyword match (endings, deaths, twists, reveals, ...)
+over the notes and follow-up answers, sentence by sentence. This is deliberately *not*
+the same thing as the "let the model guess" option rejected above -- the guess never
+ships on its own; it only pre-fills the field the player already edits or clears before
+Ctrl+S/Enter, the same as if they'd typed it themselves. Only applied when the field is
+still empty, so it never clobbers an answer already typed (including after going back
+through `o`). A keyword heuristic was picked over a second LLM call here specifically to
+avoid a new async/loading state in the TUI's otherwise-synchronous step chain -- the only
+other background work is the worker thread for fetch/analyze/generate.
+
 From the Result screen, the TUI also offers to go back through Liked/Disliked/Notes/
 Options with everything from last time still in place (`o`) -- for fixing a wrong
 like/dislike or picking a different length/tone/vocab without starting over from what the

@@ -115,6 +115,7 @@ add_executable(test_tui_state
     test_tui_state.c
     ${CMAKE_SOURCE_DIR}/src/tui/state.c
     ${CMAKE_SOURCE_DIR}/src/core/themes.c
+    ${CMAKE_SOURCE_DIR}/src/core/review.c
     ${CMAKE_SOURCE_DIR}/src/util/arena.c
     ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
     ${CMAKE_SOURCE_DIR}/src/util/error.c
