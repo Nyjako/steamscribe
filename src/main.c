@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "core/followup.h"
 #include "core/pipeline.h"
 #include "core/review.h"
 #include "core/themes.h"
@@ -310,6 +311,40 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     prompt_checklist(arena, "What did YOU like?", "What bothered you?", &themes.liked, &themes.n_liked, &themes.disliked, &themes.n_disliked);
     prompt_checklist(arena, "What bothered you?", "What did YOU like?", &themes.disliked, &themes.n_disliked, &themes.liked, &themes.n_liked);
 
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    if (pipeline_resolve_llm(cfg, &provider, &llm_cfg, &err) != 0)
+    {
+        fprintf(stderr, "could not generate review: %s\n", err.msg);
+        return 1;
+    }
+
+    char **followup_questions = NULL;
+    char **followup_answers = NULL;
+    size_t n_followup = 0;
+    err_t followup_err;
+    err_clear(&followup_err);
+    if (followup_generate(arena, provider, &llm_cfg, &game, &themes, &followup_questions, &n_followup, &followup_err) != 0)
+    {
+        /* Best-effort and optional: skip silently rather than block the
+         * flow over something that was never required to begin with. */
+        n_followup = 0;
+    }
+
+    if (n_followup > 0)
+    {
+        followup_answers = (char **)arena_alloc(arena, n_followup * sizeof(char *));
+        printf("\nA few optional questions (leave blank to skip):\n");
+        for (size_t i = 0; i < n_followup; i++)
+        {
+            printf("%s > ", followup_questions[i]);
+            fflush(stdout);
+            char answer_line[512];
+            read_line(answer_line, sizeof(answer_line));
+            followup_answers[i] = arena_strdup(arena, answer_line);
+        }
+    }
+
     printf("\nAnything else? > ");
     fflush(stdout);
     char notes[512];
@@ -351,14 +386,9 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     req.length = length;
     req.tone = tone;
     req.vocab = vocab;
-
-    const llm_provider_t *provider;
-    llm_cfg_t llm_cfg;
-    if (pipeline_resolve_llm(cfg, &provider, &llm_cfg, &err) != 0)
-    {
-        fprintf(stderr, "could not generate review: %s\n", err.msg);
-        return 1;
-    }
+    req.followup_questions = followup_questions;
+    req.followup_answers = followup_answers;
+    req.n_followup = n_followup;
 
     char *review_text = NULL;
     if (review_generate(arena, provider, &llm_cfg, &req, &review_text, &err) != 0)
