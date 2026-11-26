@@ -116,13 +116,11 @@ issue in practice.
 { "disliked": [ { "id": "raids",    "label": "Annoying enemy raids" } ] }
 ```
 
-```json
-{ "liked":    [ { "id": "art",      "label": "Art style & lighting" } ] }
-{ "disliked": [ { "id": "raids",    "label": "Annoying enemy raids" } ] }
-```
-
-Rules in prompt: 5–8 items, short labels (≤ 4 words), most common first, no duplicates,
-JSON only.
+Rules in prompt: at least 7 items, up to 14, short labels (≤ 4 words), most common first,
+no duplicates, JSON only -- the schema itself also sets `minItems`/`maxItems` (7/14) for a
+schema-capable provider, since a small local model given only a loose "N to M" range in
+the prompt text tended to always settle on the low end (consistently exactly 7) rather
+than actually varying with how many distinct points the reviews supported.
 
 Parsing: strip ```` ``` ```` fences if present and parse with cJSON. On failure, retry
 that side once with "return only valid JSON". On a second failure, show an error with the
@@ -178,7 +176,11 @@ like/dislike or picking a different length/tone/vocab without starting over from
 AI extracted -- and to open the current review text in `$EDITOR` (`e`, falling back to
 `vi`), replacing it with whatever's in the file once the editor exits. termbox2 has to
 fully release the terminal for that (`tb_shutdown()` / `tb_init()` around the subprocess),
-same as it does for a fatal signal.
+same as it does for a fatal signal. `c` copies it to the clipboard two ways at once, since
+there's no reliable way to tell from inside the app whether either landed: an OSC 52
+escape sequence written straight to stdout (no external dependency, works in most modern
+terminals even over SSH/tmux), and -- belt and suspenders -- whichever of
+`wl-copy`/`xclip`/`pbcopy` is actually installed, fed the text over a pipe.
 
 ### 4.4 Providers
 A small vtable so backends are swappable, with an optional second entry point for
@@ -234,22 +236,25 @@ src/
     pipeline.c/.h   shared fetch-or-cache/call-the-LLM steps, used by both main.c and tui/
   tui/
     state.c/.h      pure state machine (screens, keys -> actions, result folding) -- no
-                    termbox2 dependency, unit-tested without a terminal. Includes a
-                    Settings screen (F2) for provider/model/base_url/num_ctx, staged
-                    in app_state_t and only written into the live config_t (then
-                    config_save()'d) on Ctrl+S; Esc discards the edit
+                    termbox2 dependency, unit-tested without a terminal. Every text field
+                    (search, custom checklist items, notes, follow-up answers, Settings)
+                    shares one text_field_t { buf, cap, *len, *cursor } and a handful of
+                    editing primitives (insert/backspace/delete-forward/left/right/home/
+                    end at an arbitrary cursor position, not just the end) -- see 5.5.
+                    Includes a Settings screen (F2) for provider/model/base_url/num_ctx/
+                    review-count, staged in app_state_t and only written into the live
+                    config_t (then config_save()'d) on Ctrl+S; Esc discards the edit
     keys.h          the handful of termbox2 TB_KEY_* values state.c reacts to, duplicated
                     as plain macros so state.c doesn't need to include termbox2.h
     app.c/.h        termbox2 init/shutdown (incl. signal handling) and the main loop:
                     draws state, performs blocking IO for the Loading screens, otherwise
                     polls a key and feeds it to state.c. Also where $EDITOR integration
-                    lives (do_edit_review(): tb_shutdown()/tb_init() around a temp file
-                    and the subprocess) -- no separate editor.c, it turned out small
-                    enough to keep inline
-    widgets.c/.h    list, checklist, line input, wrapped line input, text view
-                    (word-wrapped), status bar
+                    (do_edit_review()) and clipboard copy (do_copy_review(), 4.3) live --
+                    no separate editor.c/clipboard.c, both turned out small enough to
+                    keep inline
+    widgets.c/.h    list, checklist, text area (hard-wrapped, cursor-aware -- see 5.5),
+                    read-only wrapped text view, status bar
     termbox_impl.c  the one translation unit that #defines TB_IMPL
-    clipboard.c/.h  OSC 52 and fallback to wl-copy / xclip / pbcopy (M5)
 ```
 
 **Layering rule:** `tui/` depends on `core/`, and `core/` depends on `steam/` and `llm/`, which depend on `net/` and `util/`. Nothing below `tui/` knows about the terminal, so every feature works from the CLI subcommands too, which makes testing easy.
@@ -292,6 +297,37 @@ yet -- so this works without making the arena allocator itself thread-safe.
 
 ### 5.4 Errors
 Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`. The TUI shows `msg` in a status bar. `--verbose` writes HTTP and LLM traffic to `~/.cache/steamscribe/debug.log`, with API keys redacted.
+
+### 5.5 Text input and the cursor
+Every editable field (search, custom checklist items, notes, follow-up answers, Settings)
+is a `text_field_t { char *buf; size_t cap; size_t *len; size_t *cursor; }`, and
+`handle_text_field_key()` in `tui/state.c` handles backspace, forward delete,
+left/right/home/end, and inserting a typed character the same way for all of them --
+`cursor` is a byte offset into `buf`, 0..`*len`, and insert/delete act at it, not just at
+the end. Each field's own key handler only deals with what's specific to it (Enter, Esc,
+Ctrl+S, numeric-only for Num ctx/Reviews).
+
+Rendering an arbitrary cursor position correctly needs an exact, reversible mapping
+between a byte offset and its on-screen (row, col) -- `widgets_draw_text_area()` gets
+that by *hard*-wrapping (chopping every `width` characters) instead of word-wrapping.
+Word-wrapping (`text_wrap`, still used for read-only text: the status bar, error
+messages, the final review) collapses or reflows whitespace, so a byte offset doesn't
+land on a fixed screen position any more once a line has wrapped -- that mismatch was
+exactly an earlier bug: typing a space at the end of a wrapped field didn't visibly move
+the cursor (word-wrap's line-splitting logic doesn't emit a word-ending space that has
+nothing after it yet), so the cursor looked stuck until the next character "caught it up"
+by two positions instead of one. `widgets_draw_text_area()` also splits on literal `\n`,
+which is what makes the notes field properly multi-line: Enter inserts a newline once
+there's something typed (an empty field still lets Enter skip straight past, so you don't
+need Ctrl+S just to leave an optional field blank); Ctrl+S submits regardless of content.
+This also fixed pasting multi-line text into notes: a paste's embedded newlines used to
+each be read as a literal Enter keypress, which used to mean "submit and move to the next
+step" -- enough embedded newlines in one paste could blow straight through
+Recommend/Length/Vocab into actually generating a review. Up/down movement between
+wrapped rows isn't implemented (it would need `state.c` to know the render width, which
+would mean it depending on the terminal -- not worth it yet for how rarely a field wraps
+to more than a couple of rows); left/right already reach every character, including
+across a wrapped or newline boundary.
 
 ---
 

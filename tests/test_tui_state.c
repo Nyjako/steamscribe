@@ -487,7 +487,12 @@ static int test_notes_flow_to_generate_review(void)
     tui_handle_key(&state, 'i', 0);
     TEST_ASSERT(strcmp(state.notes_input, "hi") == 0);
 
+    /* once there's content, Enter starts a new line rather than advancing */
     TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(strcmp(state.notes_input, "hi\n") == 0);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_TEXT);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_NONE);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_RECOMMEND);
 
     tui_handle_key(&state, 'y', 0);
@@ -697,6 +702,23 @@ static int test_result_screen_edit_action(void)
     return 0;
 }
 
+static int test_result_screen_copy_action(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 'c', 0) == TUI_ACTION_COPY_REVIEW);
+    TEST_ASSERT(state.screen == TUI_SCREEN_RESULT); /* app.c handles the actual copy, not state.c */
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_result_screen_change_answers_goes_to_liked(void)
 {
     arena_t arena;
@@ -787,6 +809,9 @@ static int test_f2_opens_settings_prefilled_from_cfg(void)
     TEST_ASSERT(strcmp(state.settings_model, "claude-haiku-5-5") == 0);
     TEST_ASSERT(strcmp(state.settings_base_url, "") == 0);
     TEST_ASSERT(strcmp(state.settings_num_ctx, "8192") == 0);
+    TEST_ASSERT(strcmp(state.settings_review_count, "200") == 0);
+    /* cursor starts at the end of the pre-filled text, like any editor */
+    TEST_ASSERT(state.settings_model_cursor == state.settings_model_len);
 
     arena_free(&arena);
     return 0;
@@ -817,10 +842,12 @@ static int test_settings_field_navigation_and_provider_cycling(void)
     TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_BASE_URL);
     tui_handle_key(&state, 'j', 0);
     TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
     tui_handle_key(&state, 'j', 0); /* bottom: no-op */
-    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
     tui_handle_key(&state, 'k', 0);
-    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_BASE_URL);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
 
     arena_free(&arena);
     return 0;
@@ -1017,6 +1044,99 @@ static int test_settings_q_quits_in_nav_mode(void)
     return 0;
 }
 
+static int test_settings_review_count_field_edits_and_commits(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0); /* -> Review count field */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+    TEST_ASSERT(strcmp(state.settings_review_count, "200") == 0);
+
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* edit */
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 'x', 0); /* rejected: not a digit */
+    TEST_ASSERT(strcmp(state.settings_review_count, "") == 0);
+    tui_handle_key(&state, '5', 0);
+    tui_handle_key(&state, '0', 0);
+    TEST_ASSERT(strcmp(state.settings_review_count, "50") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* confirm edit */
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
+    TEST_ASSERT(cfg.steam_review_count == 50);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_text_field_arrow_keys_edit_in_the_middle(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+
+    tui_handle_key(&state, 'h', 0);
+    tui_handle_key(&state, 'e', 0);
+    tui_handle_key(&state, 'l', 0);
+    tui_handle_key(&state, 'l', 0);
+    tui_handle_key(&state, 'o', 0);
+    TEST_ASSERT(strcmp(state.search_input, "hello") == 0);
+    TEST_ASSERT(state.search_input_cursor == 5);
+
+    /* a space, pressed at the end, must move the cursor just like any
+     * other character -- this is the regression that prompted this test:
+     * the cursor used to visibly lag behind by one character after a
+     * space, catching up only once another character was typed. */
+    tui_handle_key(&state, ' ', 0);
+    TEST_ASSERT(strcmp(state.search_input, "hello ") == 0);
+    TEST_ASSERT(state.search_input_cursor == 6);
+
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_LEFT);
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_LEFT);
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_LEFT);
+    TEST_ASSERT(state.search_input_cursor == 3); /* "hel|lo " */
+
+    /* insert at the cursor, not at the end */
+    tui_handle_key(&state, 'p', 0);
+    TEST_ASSERT(strcmp(state.search_input, "helplo ") == 0);
+    TEST_ASSERT(state.search_input_cursor == 4);
+
+    /* forward delete removes the character at the cursor */
+    tui_handle_key(&state, 0, TUI_KEY_DELETE);
+    TEST_ASSERT(strcmp(state.search_input, "helpo ") == 0);
+
+    /* Home/End jump to the start/end */
+    tui_handle_key(&state, 0, TUI_KEY_HOME);
+    TEST_ASSERT(state.search_input_cursor == 0);
+    tui_handle_key(&state, 0, TUI_KEY_END);
+    TEST_ASSERT(state.search_input_cursor == state.search_input_len);
+
+    /* arrows can't run off either end */
+    tui_handle_key(&state, 0, TUI_KEY_ARROW_RIGHT);
+    TEST_ASSERT(state.search_input_cursor == state.search_input_len);
+    for (size_t i = 0; i < 20; i++) tui_handle_key(&state, 0, TUI_KEY_ARROW_LEFT);
+    TEST_ASSERT(state.search_input_cursor == 0);
+
+    /* backspace at the very start is a no-op */
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    TEST_ASSERT(strcmp(state.search_input, "helpo ") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
 int main(void)
 {
     if (test_init_prefills_search()) return 1;
@@ -1043,6 +1163,7 @@ int main(void)
     if (test_notes_flow_to_generate_review()) return 1;
     if (test_vocab_step_esc_goes_back_to_length()) return 1;
     if (test_result_screen_edit_action()) return 1;
+    if (test_result_screen_copy_action()) return 1;
     if (test_result_screen_change_answers_goes_to_liked()) return 1;
     if (test_result_screen_regenerate_and_quit()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;
@@ -1056,6 +1177,8 @@ int main(void)
     if (test_settings_ctrl_s_commits_to_cfg_and_returns_action()) return 1;
     if (test_settings_save_failed_stays_on_settings_with_status()) return 1;
     if (test_settings_q_quits_in_nav_mode()) return 1;
+    if (test_settings_review_count_field_edits_and_commits()) return 1;
+    if (test_text_field_arrow_keys_edit_in_the_middle()) return 1;
 
     printf("all tests passed\n");
     return 0;

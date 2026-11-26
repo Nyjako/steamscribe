@@ -48,12 +48,6 @@ void widgets_draw_checklist(int y, const theme_t *items, size_t count, size_t cu
     }
 }
 
-void widgets_draw_text_input(int y, const char *label, const char *buffer)
-{
-    tb_printf(2, y, TB_DEFAULT, TB_DEFAULT, "%s %s", label, buffer);
-    tb_set_cursor(2 + (int)strlen(label) + 1 + (int)strlen(buffer), y);
-}
-
 void widgets_draw_wrapped_text(arena_t *arena, int x, int y, int width, const char *text)
 {
     size_t count = 0;
@@ -61,22 +55,50 @@ void widgets_draw_wrapped_text(arena_t *arena, int x, int y, int width, const ch
     for (size_t i = 0; i < count; i++) tb_print(x, y + (int)i, TB_DEFAULT, TB_DEFAULT, lines[i]);
 }
 
-size_t widgets_draw_wrapped_input(arena_t *arena, int y, int width, const char *label, const char *buffer, bool editing)
+size_t widgets_draw_text_area(int y, int width, const char *buffer, size_t cursor_pos)
 {
-    size_t label_len = strlen(label);
-    size_t buffer_len = strlen(buffer);
+    if (width < 1) width = 1;
 
-    char *combined = (char *)arena_alloc(arena, label_len + 1 + buffer_len + 1);
-    memcpy(combined, label, label_len);
-    combined[label_len] = ' ';
-    memcpy(combined + label_len + 1, buffer, buffer_len);
-    combined[label_len + 1 + buffer_len] = '\0';
+    int row = 0;
+    int col = 0;
+    int cursor_row = 0;
+    int cursor_col = 0;
+    bool cursor_found = false;
 
-    size_t count = 0;
-    char **lines = text_wrap(arena, combined, width, &count);
-    for (size_t i = 0; i < count; i++) tb_print(2, y + (int)i, TB_DEFAULT, TB_DEFAULT, lines[i]);
+    size_t len = strlen(buffer);
+    for (size_t i = 0; i < len; i++)
+    {
+        if (i == cursor_pos)
+        {
+            cursor_row = row;
+            cursor_col = col;
+            cursor_found = true;
+        }
 
-    if (editing && count > 0) tb_set_cursor(2 + (int)strlen(lines[count - 1]), y + (int)count - 1);
+        if (buffer[i] == '\n')
+        {
+            row++;
+            col = 0;
+            continue;
+        }
 
-    return count > 0 ? count : 1;
+        tb_set_cell(2 + col, y + row, (uint32_t)(unsigned char)buffer[i], TB_DEFAULT, TB_DEFAULT);
+        col++;
+
+        if (col >= width)
+        {
+            row++;
+            col = 0;
+        }
+    }
+
+    if (!cursor_found)
+    {
+        cursor_row = row;
+        cursor_col = col;
+    }
+
+    tb_set_cursor(2 + cursor_col, y + cursor_row);
+
+    return (size_t)row + 1;
 }

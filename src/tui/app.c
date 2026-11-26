@@ -40,11 +40,12 @@ static bool is_loading_screen(tui_screen_t screen)
     return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
-static void draw_settings_field(int y, const char *label, const char *value, bool focused, bool editing)
+static void draw_settings_field(int y, const char *label, const char *value, size_t cursor, bool focused, bool editing)
 {
     uintattr_t fg = focused ? TB_BLACK : TB_DEFAULT;
     uintattr_t bg = focused ? TB_CYAN : TB_DEFAULT;
-    tb_printf(2, y, fg, bg, "%-10s %s%s", label, value, (focused && editing) ? "_" : "");
+    tb_printf(2, y, fg, bg, "%-10s %s", label, value);
+    if (focused && editing) tb_set_cursor(2 + 11 + (int)cursor, y);
 }
 
 static void draw(app_state_t *state, char spinner_ch)
@@ -54,10 +55,16 @@ static void draw(app_state_t *state, char spinner_ch)
     switch (state->screen)
     {
         case TUI_SCREEN_SEARCH:
+        {
+            int width = tb_width() - 4;
+            if (width < 1) width = 1;
+
             widgets_draw_header(1, "steamscribe -- search for a game (F2 for settings)");
-            widgets_draw_text_input(3, "Game name >", state->search_input);
+            tb_print(2, 3, TB_DEFAULT, TB_DEFAULT, "Game name >");
+            widgets_draw_text_area(4, width, state->search_input, state->search_input_cursor);
             widgets_draw_status_bar(state->arena, state->status);
             break;
+        }
 
         case TUI_SCREEN_SELECT:
             widgets_draw_header(1, "Pick a game (Enter), Esc to search again, q to quit");
@@ -71,18 +78,36 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_LIKED:
+        {
             widgets_draw_header(1, state->adding_item ? "Type a new liked item, Enter to add, Esc to cancel"
                                                         : "What did YOU like? Space toggles, (n) add your own, (m) move to disliked, Enter continues, Esc back, q quits");
             widgets_draw_checklist(3, state->themes.liked, state->themes.n_liked, state->liked_cursor);
-            if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_liked + 1, "New item >", state->custom_item_input);
+            if (state->adding_item)
+            {
+                int width = tb_width() - 4;
+                if (width < 1) width = 1;
+                int y = 3 + (int)state->themes.n_liked + 1;
+                tb_print(2, y, TB_DEFAULT, TB_DEFAULT, "New item >");
+                widgets_draw_text_area(y + 1, width, state->custom_item_input, state->custom_item_input_cursor);
+            }
             break;
+        }
 
         case TUI_SCREEN_DISLIKED:
+        {
             widgets_draw_header(1, state->adding_item ? "Type a new disliked item, Enter to add, Esc to cancel"
                                                         : "What bothered you? Space toggles, (n) add your own, (m) move to liked, Enter continues, Esc back, q quits");
             widgets_draw_checklist(3, state->themes.disliked, state->themes.n_disliked, state->disliked_cursor);
-            if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_disliked + 1, "New item >", state->custom_item_input);
+            if (state->adding_item)
+            {
+                int width = tb_width() - 4;
+                if (width < 1) width = 1;
+                int y = 3 + (int)state->themes.n_disliked + 1;
+                tb_print(2, y, TB_DEFAULT, TB_DEFAULT, "New item >");
+                widgets_draw_text_area(y + 1, width, state->custom_item_input, state->custom_item_input_cursor);
+            }
             break;
+        }
 
         case TUI_SCREEN_LOADING_FOLLOWUP:
             widgets_draw_header(1, "Thinking of a few questions...");
@@ -98,16 +123,23 @@ static void draw(app_state_t *state, char spinner_ch)
             {
                 widgets_draw_header(1, "A few optional questions -- Enter to answer (blank skips), Esc back, q quits");
 
-                char label[TUI_NOTES_INPUT_CAP + 32];
-                snprintf(label, sizeof(label), "(%zu/%zu) %s >", state->followup_index + 1, state->n_followup_questions, state->followup_questions[state->followup_index]);
-                widgets_draw_wrapped_input(state->arena, 3, width, label, state->followup_answer[state->followup_index], true);
+                char qline[1024];
+                snprintf(qline, sizeof(qline), "(%zu/%zu) %s", state->followup_index + 1, state->n_followup_questions, state->followup_questions[state->followup_index]);
+                size_t qrows = widgets_draw_text_area(3, width, qline, strlen(qline));
+
+                int y = 3 + (int)qrows;
+                tb_print(2, y, TB_DEFAULT, TB_DEFAULT, "Answer (blank skips) >");
+                widgets_draw_text_area(y + 1, width, state->followup_answer[state->followup_index], state->followup_answer_cursor[state->followup_index]);
                 break;
             }
 
-            widgets_draw_header(1, "A few more questions");
+            widgets_draw_header(1, "A few more questions -- Enter for a new line once you've typed something, Ctrl+S to continue");
+            tb_print(2, 3, TB_DEFAULT, TB_DEFAULT, "Anything else?");
 
-            size_t notes_lines = widgets_draw_wrapped_input(state->arena, 3, width, "Anything else? >", state->notes_input, state->notes_step == TUI_NOTES_STEP_TEXT);
-            int next_y = 3 + (int)notes_lines;
+            size_t notes_rows = widgets_draw_text_area(4, width, state->notes_input, state->notes_input_cursor);
+            int next_y = 4 + (int)notes_rows;
+
+            if (state->notes_step != TUI_NOTES_STEP_TEXT) tb_hide_cursor();
 
             if (state->notes_step >= TUI_NOTES_STEP_RECOMMEND)
             {
@@ -133,7 +165,7 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_RESULT:
-            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (o) change your answers, (q) quit");
+            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (c) copy, (o) change your answers, (q) quit");
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
             widgets_draw_status_bar(state->arena, state->status);
             break;
@@ -143,13 +175,15 @@ static void draw(app_state_t *state, char spinner_ch)
             widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles provider, Enter edits, Ctrl+S saves, Esc cancels");
 
             static const char *provider_names[] = {"anthropic", "openai", "ollama"};
-            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false);
-            draw_settings_field(4, "Model:", state->settings_model, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing);
-            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing);
-            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing);
+            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false);
+            draw_settings_field(4, "Model:", state->settings_model, state->settings_model_cursor, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing);
+            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_base_url_cursor, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing);
+            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_num_ctx_cursor, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing);
+            draw_settings_field(7, "Reviews:", state->settings_review_count, state->settings_review_count_cursor, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT, state->settings_editing);
 
-            tb_print(2, 8, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
-            tb_print(2, 9, TB_DEFAULT, TB_DEFAULT, "API keys come only from ANTHROPIC_API_KEY / OPENAI_API_KEY -- not editable here.");
+            tb_print(2, 9, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
+            tb_print(2, 10, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
+            tb_print(2, 11, TB_DEFAULT, TB_DEFAULT, "API keys come only from ANTHROPIC_API_KEY / OPENAI_API_KEY -- not editable here.");
             widgets_draw_status_bar(state->arena, state->status);
             break;
         }
@@ -323,6 +357,74 @@ static void do_save_settings(app_state_t *state)
     }
 
     tui_apply_settings_saved(state);
+}
+
+static char *base64_encode(const char *data, size_t len)
+{
+    static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t out_len = 4 * ((len + 2) / 3);
+    char *out = (char *)malloc(out_len + 1);
+    if (!out) return NULL;
+
+    size_t i = 0, j = 0;
+    while (i < len)
+    {
+        uint32_t octet_a = i < len ? (unsigned char)data[i++] : 0;
+        uint32_t octet_b = i < len ? (unsigned char)data[i++] : 0;
+        uint32_t octet_c = i < len ? (unsigned char)data[i++] : 0;
+        uint32_t triple = (octet_a << 16) | (octet_b << 8) | octet_c;
+
+        out[j++] = table[(triple >> 18) & 0x3F];
+        out[j++] = table[(triple >> 12) & 0x3F];
+        out[j++] = table[(triple >> 6) & 0x3F];
+        out[j++] = table[triple & 0x3F];
+    }
+
+    size_t mod = len % 3;
+    if (mod == 1) out[out_len - 1] = out[out_len - 2] = '=';
+    else if (mod == 2) out[out_len - 1] = '=';
+
+    out[out_len] = '\0';
+    return out;
+}
+
+static bool try_copy_via(const char *cmd, const char *text, size_t len)
+{
+    FILE *fp = popen(cmd, "w");
+    if (!fp) return false;
+    fwrite(text, 1, len, fp);
+    return pclose(fp) == 0;
+}
+
+/* Copies state->review_text to the clipboard two ways at once, since
+ * there's no reliable way to tell from in here whether either one
+ * actually worked: an OSC 52 escape sequence (no external dependency,
+ * works in most modern terminals even over SSH/tmux) written straight to
+ * stdout, and -- belt and suspenders -- whichever of wl-copy/xclip/pbcopy
+ * is actually installed, via a subprocess fed the text on stdin. */
+static void do_copy_review(app_state_t *state)
+{
+    if (!state->review_text || !state->review_text[0])
+    {
+        snprintf(state->status, sizeof(state->status), "Nothing to copy yet");
+        return;
+    }
+
+    size_t len = strlen(state->review_text);
+
+    char *b64 = base64_encode(state->review_text, len);
+    if (b64)
+    {
+        fprintf(stdout, "\x1b]52;c;%s\x07", b64);
+        fflush(stdout);
+        free(b64);
+    }
+
+    bool copied = try_copy_via("wl-copy 2>/dev/null", state->review_text, len) || try_copy_via("xclip -selection clipboard 2>/dev/null", state->review_text, len) ||
+                  try_copy_via("pbcopy 2>/dev/null", state->review_text, len);
+
+    if (copied) snprintf(state->status, sizeof(state->status), "Copied to clipboard");
+    else snprintf(state->status, sizeof(state->status), "Sent to clipboard via your terminal (OSC 52) -- no local clipboard tool found to confirm it landed");
 }
 
 /* Opens state->review_text in $EDITOR (falling back to "vi"), replacing it
@@ -504,6 +606,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         if (action == TUI_ACTION_SEARCH) do_search(&state, cfg);
         else if (action == TUI_ACTION_SAVE_SETTINGS) do_save_settings(&state);
         else if (action == TUI_ACTION_EDIT_REVIEW) do_edit_review(&state);
+        else if (action == TUI_ACTION_COPY_REVIEW) do_copy_review(&state);
     }
 
     tb_shutdown();
