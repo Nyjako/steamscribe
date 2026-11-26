@@ -7,12 +7,6 @@
 #include "util/json_fence.h"
 #include "util/strbuf.h"
 
-/* Caps how many reviews go into a single side's prompt -- keeps prompts
- * small enough for small-context local models, and the LLM call itself
- * fast. Steam's `filter=all` sorts by helpfulness, so the first N of a
- * side are already the most representative ones. */
-#define THEMES_MAX_REVIEWS_PER_SIDE 60
-
 /* A conservative (safe-side) chars-per-token estimate for review text --
  * actual token density varies by content (BBCode/punctuation-heavy text
  * can run denser than plain prose), so this errs low rather than risk
@@ -24,15 +18,22 @@
  * reviews. */
 #define THEMES_PROMPT_OVERHEAD_TOKENS 1500
 
+/* Used in place of num_ctx for providers that don't report one (anthropic,
+ * openai against the real API): generous enough that `review_count` in
+ * Settings actually changes how many reviews get analyzed, but still a
+ * hard ceiling -- without one, cranking review_count way up would build an
+ * unbounded prompt and silently balloon the cost of every review. */
+#define THEMES_DEFAULT_CHAR_BUDGET 100000
+
 /* How many characters of review text fit in num_ctx tokens' worth of
- * context, after THEMES_PROMPT_OVERHEAD_TOKENS. Returns 0 ("no limit",
- * keep the existing count-only cap) when num_ctx isn't set -- true for
- * every provider except ollama, where a game with unusually long reviews
- * can otherwise build a prompt that overflows the model's context and
- * gets rejected outright rather than just answered sloppily. */
+ * context, after THEMES_PROMPT_OVERHEAD_TOKENS -- or THEMES_DEFAULT_CHAR_BUDGET
+ * when num_ctx isn't set (every provider except ollama). A game with
+ * unusually long or numerous reviews can otherwise build a prompt that
+ * overflows the model's context (local) or balloons cost unboundedly
+ * (cloud) rather than just getting answered sloppily. */
 static size_t themes_review_char_budget(int num_ctx)
 {
-    if (num_ctx <= 0) return 0;
+    if (num_ctx <= 0) return THEMES_DEFAULT_CHAR_BUDGET;
 
     int available_tokens = num_ctx - THEMES_PROMPT_OVERHEAD_TOKENS;
     if (available_tokens < 500) available_tokens = 500;
@@ -104,13 +105,18 @@ void themes_build_side_prompt(arena_t *arena, const game_info_t *game, const rev
 
     size_t char_budget = themes_review_char_budget(num_ctx);
 
+    /* Steam's `filter=all` sorts each side by helpfulness, so the first
+     * reviews here are already the most representative ones -- how many
+     * actually get used is governed by char_budget alone, which in turn
+     * is driven by how many the user asked to fetch (review_count in
+     * Settings) via steam_reviews_sample. */
     size_t shown = 0;
-    for (size_t i = 0; i < reviews->count && shown < THEMES_MAX_REVIEWS_PER_SIDE; i++)
+    for (size_t i = 0; i < reviews->count; i++)
     {
         if (reviews->items[i].voted_up != is_liked_side) continue;
 
         size_t review_len = strlen(reviews->items[i].text);
-        if (char_budget > 0 && shown > 0 && sb.len + review_len > char_budget) break;
+        if (shown > 0 && sb.len + review_len > char_budget) break;
 
         strbuf_append_cstr(&sb, "- ");
         strbuf_append_cstr(&sb, reviews->items[i].text);

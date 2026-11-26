@@ -144,14 +144,14 @@ static int test_build_side_prompt_trims_to_fit_num_ctx(void)
     for (const char *p = user; (p = strstr(p, "- ")) != NULL; p += 2) included++;
 
     TEST_ASSERT(included > 0);
-    TEST_ASSERT(included < 20); /* the byte budget cut it short, not just the 60-review cap */
+    TEST_ASSERT(included < 20); /* the byte budget cut it short */
     TEST_ASSERT(strlen(user) < 3000); /* nowhere near what untrimmed would be (~4000+ chars) */
 
     arena_free(&arena);
     return 0;
 }
 
-static int test_build_side_prompt_num_ctx_zero_means_no_limit(void)
+static int test_build_side_prompt_num_ctx_zero_uses_default_budget(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
@@ -166,7 +166,35 @@ static int test_build_side_prompt_num_ctx_zero_means_no_limit(void)
     size_t included = 0;
     for (const char *p = user; (p = strstr(p, "- ")) != NULL; p += 2) included++;
 
-    TEST_ASSERT(included == 20); /* no provider num_ctx -> only the count cap applies */
+    /* No provider num_ctx -> falls back to THEMES_DEFAULT_CHAR_BUDGET, far
+     * bigger than these 20 * ~203 chars, so every review fits. */
+    TEST_ASSERT(included == 20);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_build_side_prompt_is_not_capped_to_a_fixed_review_count(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game = make_game(&arena);
+    /* More than the old hardcoded 60-per-side cap, but still well under
+     * THEMES_DEFAULT_CHAR_BUDGET at this length -- confirms review_count in
+     * Settings (which controls how many reviews get fetched in the first
+     * place) is what actually governs how many are analyzed now, not an
+     * unrelated fixed count baked into the prompt builder. */
+    review_set_t reviews = make_many_long_reviews(&arena, 120, 200);
+
+    char *system = NULL;
+    char *user = NULL;
+    themes_build_side_prompt(&arena, &game, &reviews, true, 0, &system, &user);
+
+    size_t included = 0;
+    for (const char *p = user; (p = strstr(p, "- ")) != NULL; p += 2) included++;
+
+    TEST_ASSERT(included == 120);
 
     arena_free(&arena);
     return 0;
@@ -457,7 +485,8 @@ int main(void)
     if (test_build_side_prompt_liked()) return 1;
     if (test_build_side_prompt_disliked_empty()) return 1;
     if (test_build_side_prompt_trims_to_fit_num_ctx()) return 1;
-    if (test_build_side_prompt_num_ctx_zero_means_no_limit()) return 1;
+    if (test_build_side_prompt_num_ctx_zero_uses_default_budget()) return 1;
+    if (test_build_side_prompt_is_not_capped_to_a_fixed_review_count()) return 1;
     if (test_parse_side_response_plain()) return 1;
     if (test_parse_side_response_fenced()) return 1;
     if (test_parse_side_response_wrong_key()) return 1;

@@ -117,20 +117,24 @@ a few follow-up questions, and one to generate the review text.
 
 ### 4.1 Theme extraction
 Two calls, not one: liked themes are extracted from only the positive reviews, disliked
-themes from only the negative ones, each capped to 60 reviews, then merged. This keeps
-each prompt small (good for small-context local models) and lets a schema-capable
-provider constrain each call to a simple, single-key shape.
+themes from only the negative ones, then merged. This lets a schema-capable provider
+constrain each call to a simple, single-key shape, and keeps each side's prompt no
+larger than it needs to be for that side alone.
 
-For `ollama`, a side's reviews are *also* trimmed by total length (not just count) to a
-budget computed from `num_ctx` -- a conservative chars-per-token estimate, less
-`THEMES_PROMPT_OVERHEAD_TOKENS` reserved for the system prompt, the schema, and the
-model's own reply. Without this, a game whose reviews happen to be unusually long (e.g.
-long BBCode-formatted "Pros/Cons" lists) could build a prompt that overflows the model's
-context outright -- Ollama rejects that with an HTTP 400 ("request exceeds the available
-context size") rather than just answering sloppily, which surfaced as "Could not load
-game" with no further explanation. Other providers don't set `num_ctx`, so this is a
-no-op for them -- their hosted context windows are large enough that it's never been an
-issue in practice.
+How many reviews make it into a side's prompt is governed purely by a character budget,
+not a fixed count -- so `review_count` in Settings (how many reviews
+`steam_reviews_sample` fetches in the first place) is what actually controls how much
+gets analyzed. For `ollama`, that budget is computed from `num_ctx` -- a conservative
+chars-per-token estimate, less `THEMES_PROMPT_OVERHEAD_TOKENS` reserved for the system
+prompt, the schema, and the model's own reply. Without this, a game whose reviews happen
+to be unusually long (e.g. long BBCode-formatted "Pros/Cons" lists) could build a prompt
+that overflows the model's context outright -- Ollama rejects that with an HTTP 400
+("request exceeds the available context size") rather than just answering sloppily,
+which surfaced as "Could not load game" with no further explanation. Other providers
+don't set `num_ctx`, so they fall back to a generous fixed budget
+(`THEMES_DEFAULT_CHAR_BUDGET`) instead -- large enough that their big hosted context
+windows are never the limiting factor, but still a hard ceiling so a high `review_count`
+can't build an unbounded, runaway-cost prompt.
 
 ```json
 { "liked":    [ { "id": "art",      "label": "Art style & lighting" } ] }
