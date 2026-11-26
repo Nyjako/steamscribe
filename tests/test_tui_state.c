@@ -195,6 +195,134 @@ static int test_select_esc_goes_back_to_search(void)
     return 0;
 }
 
+static int test_f3_loads_library_from_search(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_F3) == TUI_ACTION_LOAD_LIBRARY);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_LIBRARY);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_library_loaded_empty_and_many(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    steam_library_t empty = {0};
+    tui_apply_library_loaded(&state, empty);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(strstr(state.status, "empty") != NULL);
+
+    steam_owned_game_t items[2];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    items[1].appid = 20;
+    items[1].name = arena_strdup(&arena, "B");
+    items[1].playtime_minutes = 10;
+    steam_library_t library = {items, 2};
+    tui_apply_library_loaded(&state, library);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIBRARY);
+    TEST_ASSERT(state.library_cursor == 0);
+    TEST_ASSERT(state.library.count == 2);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_library_load_failed_lands_on_search_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    tui_apply_library_load_failed(&state, "boom");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(strstr(state.status, "boom") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_library_screen_navigation(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    steam_owned_game_t items[3];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    items[1].appid = 20;
+    items[1].name = arena_strdup(&arena, "B");
+    items[1].playtime_minutes = 100;
+    items[2].appid = 30;
+    items[2].name = arena_strdup(&arena, "C");
+    items[2].playtime_minutes = 10;
+    steam_library_t library = {items, 3};
+    tui_apply_library_loaded(&state, library);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIBRARY);
+
+    tui_handle_key(&state, 'k', 0); /* up at the top is a no-op */
+    TEST_ASSERT(state.library_cursor == 0);
+
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.library_cursor == 2);
+
+    tui_handle_key(&state, 'j', 0); /* down at the bottom is a no-op */
+    TEST_ASSERT(state.library_cursor == 2);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_LOAD_GAME);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_GAME);
+    TEST_ASSERT(state.appid == 30);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_library_esc_goes_back_to_search(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    steam_owned_game_t items[1];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    steam_library_t library = {items, 1};
+    tui_apply_library_loaded(&state, library);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static theme_set_t make_game_themes(arena_t *arena)
 {
     theme_t *liked = (theme_t *)arena_alloc(arena, 2 * sizeof(theme_t));
@@ -969,6 +1097,95 @@ static int test_result_screen_regenerate_and_quit(void)
     return 0;
 }
 
+static int test_result_screen_pick_another_game_reuses_cached_library(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    steam_owned_game_t items[1];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    steam_library_t library = {items, 1};
+    tui_apply_library_loaded(&state, library);
+
+    tui_state_init(&state, &arena, &cfg, NULL, 892970); /* back to a fresh run, library still set below */
+    state.library = library;
+
+    strcpy(state.notes_input, "leftover notes from the last game");
+    state.notes_input_len = strlen(state.notes_input);
+    state.rating = 7;
+    state.recommend = true;
+    strcpy(state.spoiler_input, "leftover spoiler");
+    state.spoiler_input_len = strlen(state.spoiler_input);
+    tui_apply_review_generated(&state, (char *)"a review");
+
+    TEST_ASSERT(tui_handle_key(&state, 'n', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIBRARY); /* already fetched -- no need to refetch */
+    TEST_ASSERT(state.library.count == 1); /* kept, not cleared */
+
+    TEST_ASSERT(state.notes_input_len == 0);
+    TEST_ASSERT(state.notes_input[0] == '\0');
+    TEST_ASSERT(state.rating == 0);
+    TEST_ASSERT(state.recommend == false);
+    TEST_ASSERT(state.spoiler_input_len == 0);
+    TEST_ASSERT(state.spoiler_input[0] == '\0');
+    TEST_ASSERT(state.review_text == NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_result_screen_pick_another_game_fetches_library_when_not_cached(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 'n', 0) == TUI_ACTION_LOAD_LIBRARY);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_LIBRARY);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_f3_from_mid_flow_resets_in_progress_review(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    game.appid = 892970;
+    game.name = arena_strdup(&arena, "Valheim");
+
+    tui_apply_game_loaded(&state, 892970, game, make_game_themes(&arena));
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIKED);
+
+    strcpy(state.notes_input, "a draft note typed before switching to the library");
+    state.notes_input_len = strlen(state.notes_input);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_F3) == TUI_ACTION_LOAD_LIBRARY);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_LIBRARY);
+    TEST_ASSERT(state.notes_input_len == 0);
+    TEST_ASSERT(state.notes_input[0] == '\0');
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_ctrl_c_quits_from_any_screen(void)
 {
     arena_t arena;
@@ -1498,6 +1715,11 @@ int main(void)
     if (test_apply_search_results_zero_one_many()) return 1;
     if (test_select_screen_navigation()) return 1;
     if (test_select_esc_goes_back_to_search()) return 1;
+    if (test_f3_loads_library_from_search()) return 1;
+    if (test_apply_library_loaded_empty_and_many()) return 1;
+    if (test_apply_library_load_failed_lands_on_search_with_status()) return 1;
+    if (test_library_screen_navigation()) return 1;
+    if (test_library_esc_goes_back_to_search()) return 1;
     if (test_game_loaded_lands_on_liked()) return 1;
     if (test_checklist_toggle_and_navigate()) return 1;
     if (test_format_step_esc_and_choice()) return 1;
@@ -1527,6 +1749,9 @@ int main(void)
     if (test_result_screen_save_action()) return 1;
     if (test_result_screen_change_answers_goes_to_liked()) return 1;
     if (test_result_screen_regenerate_and_quit()) return 1;
+    if (test_result_screen_pick_another_game_reuses_cached_library()) return 1;
+    if (test_result_screen_pick_another_game_fetches_library_when_not_cached()) return 1;
+    if (test_f3_from_mid_flow_resets_in_progress_review()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;
     if (test_review_failed_lands_on_result_with_status()) return 1;
     if (test_f2_opens_settings_prefilled_from_cfg()) return 1;

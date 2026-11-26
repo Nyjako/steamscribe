@@ -31,4 +31,12 @@ int pipeline_fetch_themes(arena_t *arena, const config_t *cfg, uint32_t appid, c
  * same "optional, silently skipped" pattern as the follow-up questions. */
 void pipeline_fetch_playtime(const config_t *cfg, uint32_t appid, steam_playtime_t *out);
 
+/* The player's full owned-games library, sorted most-played first, for
+ * browsing by playtime instead of typing a game name to search for. Unlike
+ * pipeline_fetch_playtime this is NOT best-effort: a missing
+ * steam_api_key/steam_id is reported as an error (there's nothing useful to
+ * show instead of a library), same "fail fast with a precise message"
+ * pattern as pipeline_resolve_llm. */
+int pipeline_fetch_library(arena_t *arena, const config_t *cfg, steam_library_t *out, err_t *err);
+
 #endif

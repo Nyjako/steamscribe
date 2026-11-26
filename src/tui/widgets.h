@@ -16,6 +16,12 @@ void widgets_draw_header(int y, const char *text);
  * with no visible sign there was more. */
 void widgets_draw_status_bar(arena_t *arena, const char *text);
 void widgets_draw_search_results(int y, const steam_search_results_t *results, size_t cursor);
+
+/* Like widgets_draw_search_results, but for the (potentially much longer)
+ * owned-games library: shows each entry's playtime, and scrolls a window
+ * of rows to keep `cursor` on screen instead of overflowing the terminal
+ * for a library with more games than fit. */
+void widgets_draw_library(int y, const steam_library_t *library, size_t cursor);
 void widgets_draw_checklist(int y, const theme_t *items, size_t count, size_t cursor);
 void widgets_draw_wrapped_text(arena_t *arena, int x, int y, int width, const char *text);
 

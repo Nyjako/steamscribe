@@ -139,3 +139,29 @@ void pipeline_fetch_playtime(const config_t *cfg, uint32_t appid, steam_playtime
 
     debug_logf("playtime: found=%s minutes=%d", out->found ? "true" : "false", out->playtime_minutes);
 }
+
+int pipeline_fetch_library(arena_t *arena, const config_t *cfg, steam_library_t *out, err_t *err)
+{
+    if (!cfg->steam_api_key[0] || !cfg->steam_id[0])
+    {
+        err_set(err, -1, "no Steam ID/API key set -- add both in Settings (F2) to browse your library by playtime");
+        return -1;
+    }
+
+    err_t steam_err;
+    err_clear(&steam_err);
+
+    if (steam_fetch_library(arena, cfg->steam_api_key, cfg->steam_id, out, &steam_err) != 0)
+    {
+        /* Deliberately not forwarding steam_err.msg: like
+         * pipeline_fetch_playtime, it's built from the full request URL,
+         * which would leak the raw Steam API key into whatever shows this
+         * error (the TUI status bar, debug.log). */
+        debug_logf("library: request failed (code %d)", steam_err.code);
+        err_set(err, -1, "could not fetch your Steam library (code %d) -- check your Steam ID/API key in Settings (F2)", steam_err.code);
+        return -1;
+    }
+
+    debug_logf("library: fetched %zu game(s)", out->count);
+    return 0;
+}
