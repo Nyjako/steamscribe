@@ -77,6 +77,18 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     }
     if (!any_disliked) strbuf_append_cstr(&user, "(nothing specific)\n");
 
+    bool any_followup = false;
+    for (size_t i = 0; i < req->n_followup; i++)
+    {
+        if (!req->followup_answers[i] || !req->followup_answers[i][0]) continue;
+        if (!any_followup)
+        {
+            strbuf_append_cstr(&user, "\nMore about my experience:\n");
+            any_followup = true;
+        }
+        strbuf_append_fmt(&user, "- %s %s\n", req->followup_questions[i], req->followup_answers[i]);
+    }
+
     strbuf_append_fmt(&user, "\nAdditional notes: %s\n", (req->notes && req->notes[0]) ? req->notes : "(none)");
     strbuf_append_fmt(&user, "\nOverall recommendation: %s\n", req->recommend ? "yes" : "no");
 
