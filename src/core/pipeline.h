@@ -1,0 +1,27 @@
+#ifndef STEAMSCRIBE_CORE_PIPELINE_H
+#define STEAMSCRIBE_CORE_PIPELINE_H
+
+#include <stdint.h>
+
+#include "config.h"
+#include "core/themes.h"
+#include "llm/llm.h"
+#include "steam/steam.h"
+#include "util/arena.h"
+#include "util/error.h"
+
+/* The shared fetch-or-cache/call-the-LLM pipeline, used by both the plain
+ * CLI (main.c) and the TUI (tui/app.c) so neither duplicates it. */
+
+/* Resolves which llm_provider/llm_cfg_t a config_t names. */
+int pipeline_resolve_llm(const config_t *cfg, const llm_provider_t **out_provider, llm_cfg_t *out_cfg, err_t *err);
+
+/* Fetches appdetails for `appid`, serving a fresh cache entry when there is
+ * one and caching a fresh fetch otherwise. */
+int pipeline_fetch_game(arena_t *arena, const config_t *cfg, uint32_t appid, game_info_t *out, err_t *err);
+
+/* Fetches extracted liked/disliked themes for `appid`, serving a fresh cache
+ * entry when there is one and sampling reviews + calling the LLM otherwise. */
+int pipeline_fetch_themes(arena_t *arena, const config_t *cfg, uint32_t appid, const game_info_t *game, theme_set_t *out, err_t *err);
+
+#endif

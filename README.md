@@ -18,30 +18,37 @@ $ steamscribe valheim
   [x] Co-op with friends        [ ] Inventory management
   [ ] Sailing & exploration     [ ] Late-game performance
 
+  Which base did you build that you were proudest of?
+  > A longhouse overlooking the ocean, took three in-game days
+
   Anything else? > great with friends, a bit lonely solo
   Recommend it? (y/n) > y
   Length: (s)hort / (m)edium / (l)ong > s
+  Words: (n)ormal / (s)imple > n
 
   ── Your review ──────────────────────────────
   I really like the art style. It's simple but looks
   beautiful... Recommended, especially for co-op!
   ─────────────────────────────────────────────
-  [c] copy  [e] edit  [r] regenerate  [s] save  [q] quit
+  [c] copy  [e] edit  [r] regenerate  [o] change answers  [s] save  [q] quit
 ```
 
 ## Status
 
-🚧 Early development. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
+🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), optional AI-generated follow-up questions, notes/options, and a generated review you can edit in `$EDITOR`, copy to clipboard, or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look, and saving a copy to disk is still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
 ## Features (planned)
 
 - Search Steam games by name
 - Fetch game info and player reviews from Steam's public store endpoints, with no Steam account or key needed
 - AI pulls out common likes and dislikes from the reviews
-- Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes
-- Generates a review in your chosen length and tone, using **only the points you confirmed**
-- Copy to clipboard, edit in `$EDITOR`, regenerate, or save locally
-- Works with Anthropic or any OpenAI-compatible API, including local models through Ollama or LM Studio
+- Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- add your own items the AI didn't surface, or move one to the other side if the AI guessed your opinion wrong
+- A few optional, AI-generated follow-up questions tailored to what you checked (e.g. "Which structure did you build that made the resource gathering feel worth it?"), so your review can include specific detail a plain "anything else?" tends to miss -- skip any you don't want to answer
+- Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
+- Edit the generated review in `$EDITOR`, copy it to your clipboard, regenerate, or go back and change your answers -- saving a copy locally is still ahead
+- Full cursor-based text editing everywhere you type -- arrow keys, Home/End, forward delete -- and the notes field is a real multi-line box (Enter for a new line, Ctrl+S to continue)
+- Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
+- Press **F2** in the TUI to change provider/model/base URL/context size/review count without leaving the app or hand-editing `config.ini`
 - Caches Steam data so it doesn't hammer Steam's servers
 
 ## Requirements
@@ -66,15 +73,27 @@ cmake --build build
 ./build/steamscribe --help
 ```
 
+Or, with `make` (release build, same as above):
+
+```sh
+make build
+./build/steamscribe --help
+make clean   # removes build/
+```
+
 ## Configuration
 
 Config file: `~/.config/steamscribe/config.ini` (created on first run)
 
 ```ini
 [llm]
-provider = anthropic          ; anthropic | openai
+provider = anthropic          ; anthropic | openai | ollama
 model    = claude-haiku-5-5
-; base_url = http://localhost:11434/v1   ; for Ollama / LM Studio (provider = openai)
+; base_url = http://localhost:1234/v1   ; for LM Studio (provider = openai)
+; For a local Ollama model instead, use provider = ollama -- it talks to
+; Ollama's own API (not the OpenAI-compatible one), so it can set num_ctx
+; and force valid JSON output, and defaults to http://localhost:11434.
+; num_ctx  = 8192               ; ollama only -- raise this if reviews get truncated
 
 [steam]
 language    = english
@@ -84,6 +103,7 @@ cache_ttl_hours = 24
 [review]
 default_length = short        ; short | medium | long
 default_tone   = casual       ; casual | neutral | enthusiastic
+default_vocab  = normal       ; normal | simple (plain, everyday words)
 ```
 
 API key, read from the environment (never stored in the config):
