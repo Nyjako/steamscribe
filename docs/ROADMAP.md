@@ -92,6 +92,8 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Vocabulary/style option (normal vs. simple everyday words) picked per review, right after Length, in both the TUI and `--plain` -- backed by a new `[review] default_vocab` config default (not a roadmap item originally, added on request)
 - [x] Move a checklist item to the other side (liked <-> disliked), for when the AI filed something under the wrong one of your own opinions -- in both the TUI (`m`) and `--plain` (not a roadmap item originally, added on request)
 - [x] "Change your answers" from the Result screen -- goes back through Liked/Disliked/Notes/Options with everything you answered last time still in place, instead of only a blind regenerate (TUI only; not a roadmap item originally, added on request)
+- [x] AI-generated, optional follow-up questions (`core/followup.c`) asked right after Disliked, built from only your checked liked/disliked labels -- aimed at surfacing specific personal detail a plain "anything else?" tends to miss (e.g. "Which structure did you build that made the resource gathering feel worth it?"). Best-effort: a generation failure is just zero questions, never a hard error. In both the TUI and `--plain` (not a roadmap item originally, added on request)
+- [x] The free-text "Anything else?" input (and the new follow-up answers) word-wrap across lines instead of running off the edge of the terminal -- bug fix, reusing `text_wrap` via a new `widgets_draw_wrapped_input`
 - [ ] Friendly errors (no key, offline, game not found, rate-limited)
 - [x] ASan/UBSan CI job, no leaks or warnings (pulled forward into a `sanitize` CI job; the whole test suite passes clean under ASan/LSan/UBSan)
 

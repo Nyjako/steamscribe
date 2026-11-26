@@ -18,6 +18,9 @@ $ steamscribe valheim
   [x] Co-op with friends        [ ] Inventory management
   [ ] Sailing & exploration     [ ] Late-game performance
 
+  Which base did you build that you were proudest of?
+  > A longhouse overlooking the ocean, took three in-game days
+
   Anything else? > great with friends, a bit lonely solo
   Recommend it? (y/n) > y
   Length: (s)hort / (m)edium / (l)ong > s
@@ -32,7 +35,7 @@ $ steamscribe valheim
 
 ## Status
 
-🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), notes/options, and a generated review you can edit in `$EDITOR` or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look. Clipboard copy and saving to disk are still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
+🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), optional AI-generated follow-up questions, notes/options, and a generated review you can edit in `$EDITOR` or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look. Clipboard copy and saving to disk are still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
 ## Features (planned)
 
@@ -40,6 +43,7 @@ $ steamscribe valheim
 - Fetch game info and player reviews from Steam's public store endpoints, with no Steam account or key needed
 - AI pulls out common likes and dislikes from the reviews
 - Interactive TUI checklist to pick what *you* liked or disliked, plus free-text notes -- add your own items the AI didn't surface, or move one to the other side if the AI guessed your opinion wrong
+- A few optional, AI-generated follow-up questions tailored to what you checked (e.g. "Which structure did you build that made the resource gathering feel worth it?"), so your review can include specific detail a plain "anything else?" tends to miss -- skip any you don't want to answer
 - Generates a review in your chosen length, tone, and vocabulary (normal or simple, everyday words), using **only the points you confirmed**
 - Edit the generated review in `$EDITOR`, regenerate, or go back and change your answers -- or copy to clipboard / save locally (still ahead)
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models

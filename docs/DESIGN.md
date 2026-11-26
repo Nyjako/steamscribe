@@ -91,7 +91,8 @@ every parameter besides the optional `key` travels inside a single JSON-encoded
 
 ## 4. LLM usage
 
-Two calls per review.
+Up to four calls per review: two to extract themes (liked/disliked), one optional one for
+a few follow-up questions, and one to generate the review text.
 
 ### 4.1 Theme extraction
 Two calls, not one: liked themes are extracted from only the positive reviews, disliked
@@ -125,8 +126,24 @@ that this player actually enjoys). In the TUI that's `m` on the Liked/Disliked s
 add-your-own prompt, against the originally-printed numbering (adding custom items first
 doesn't shift it).
 
-### 4.2 Review generation
-Input: game name, **only the checked labels**, the user's free-text notes, recommend yes/no, length, tone, vocabulary.
+### 4.2 Follow-up questions
+Right after Disliked, one more call (`core/followup.c`, same two-pass-extraction style as
+4.1: JSON-only, a schema when the provider supports it, one retry on invalid JSON) asks
+for 1–3 short, specific, optional questions about *this* player's experience, built from
+only their *checked* liked/disliked labels -- e.g. "Which structure did you build that
+made the resource gathering feel worth it?" rather than "did you enjoy it?". Capped to
+`FOLLOWUP_MAX_QUESTIONS` (3), which also sizes the TUI's fixed per-question answer
+buffers.
+
+This step is best-effort and never blocks the flow: a failure (bad JSON after the retry,
+a network error, anything) is treated as zero questions and skips straight to the
+free-text "Anything else?" step, with no error shown -- it was never required to begin
+with. Each question can be answered or left blank (skipped); only answered ones make it
+into the review prompt (see 4.3), as a `- <question> <answer>` line each, under a "More
+about my experience:" heading that's left out entirely if nothing was answered.
+
+### 4.3 Review generation
+Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
 - Use only the provided points below. Never invent or add any extra like, dislike,
@@ -147,7 +164,7 @@ AI extracted -- and to open the current review text in `$EDITOR` (`e`, falling b
 fully release the terminal for that (`tb_shutdown()` / `tb_init()` around the subprocess),
 same as it does for a fatal signal.
 
-### 4.3 Providers
+### 4.4 Providers
 A small vtable so backends are swappable, with an optional second entry point for
 providers that can enforce a JSON schema server-side:
 
@@ -181,6 +198,8 @@ src/
     arena.c/.h      arena allocator (one per session; frees everything at once)
     strbuf.c/.h     growable string buffer
     text.c/.h       clip, trim, strip BBCode/HTML entities, word-wrap
+    json_fence.c/.h strip a ```[json] code fence an LLM wrapped its answer in,
+                    shared by every module that parses a raw LLM response as JSON
   net/
     http.c/.h       libcurl wrapper: GET/POST JSON, retries, timeouts
   steam/
@@ -191,7 +210,10 @@ src/
     anthropic.c
     openai.c
   core/
-    themes.c/.h     build extraction prompt, parse themes JSON
+    themes.c/.h     build extraction prompt, parse themes JSON; themes_add_custom_item
+                    and themes_move_item for editing the checklist by hand
+    followup.c/.h   build/parse the optional follow-up-questions call (4.2); best-effort,
+                    never a hard failure
     review.c/.h     build generation prompt
     pipeline.c/.h   shared fetch-or-cache/call-the-LLM steps, used by both main.c and tui/
   tui/
@@ -204,11 +226,14 @@ src/
                     as plain macros so state.c doesn't need to include termbox2.h
     app.c/.h        termbox2 init/shutdown (incl. signal handling) and the main loop:
                     draws state, performs blocking IO for the Loading screens, otherwise
-                    polls a key and feeds it to state.c
-    widgets.c/.h    list, checklist, line input, text view (word-wrapped), status bar
+                    polls a key and feeds it to state.c. Also where $EDITOR integration
+                    lives (do_edit_review(): tb_shutdown()/tb_init() around a temp file
+                    and the subprocess) -- no separate editor.c, it turned out small
+                    enough to keep inline
+    widgets.c/.h    list, checklist, line input, wrapped line input, text view
+                    (word-wrapped), status bar
     termbox_impl.c  the one translation unit that #defines TB_IMPL
     clipboard.c/.h  OSC 52 and fallback to wl-copy / xclip / pbcopy (M5)
-    editor.c/.h     open text in $EDITOR (suspend TUI, temp file) (M5)
 ```
 
 **Layering rule:** `tui/` depends on `core/`, and `core/` depends on `steam/` and `llm/`, which depend on `net/` and `util/`. Nothing below `tui/` knows about the terminal, so every feature works from the CLI subcommands too, which makes testing easy.
