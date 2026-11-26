@@ -92,10 +92,12 @@ every parameter besides the optional `key` travels inside a single JSON-encoded
 → `{"response": {"games": [{"appid": ..., "playtime_forever": <minutes>, ...}]}}` -- `games`
 is absent (or empty) if the account doesn't own that appid, or the profile/game details
 are private. This is the **Steam Web API**, a different service from 3.1-3.3 above (which
-are the public store/community endpoints): it needs the account's own free API key
-(`STEAM_API_KEY`, env-only, same reasoning as the LLM keys) and SteamID64
-(`[steam] steam_id` in config.ini -- not a secret, so unlike the key it's fine to keep
-there). Authenticates via a `key=` query parameter rather than a header, which is why
+are the public store/community endpoints): it needs the account's own free API key and
+SteamID64 (`[steam] steam_id` in config.ini -- not a secret, so it's fine to keep there
+as plain text). The key itself can come from `STEAM_API_KEY` (env, same as the LLM keys,
+and takes priority if set), or be pasted straight into `[steam] steam_api_key` in
+config.ini -- see 7.1 for how that's kept off disk as plain text. Authenticates via a
+`key=` query parameter rather than a header, which is why
 `pipeline_fetch_playtime()` deliberately does *not* log `err.msg` on failure (it's built
 from the full request URL, which would leak the key into `debug.log`) -- it logs just the
 HTTP status code instead.
@@ -281,6 +283,8 @@ src/
     text.c/.h       clip, trim, strip BBCode/HTML entities, word-wrap
     json_fence.c/.h strip a ```[json] code fence an LLM wrapped its answer in,
                     shared by every module that parses a raw LLM response as JSON
+    secret_crypto.c/.h  encrypt/decrypt a config.ini secret at rest (7.1); vendored
+                    ChaCha20 + a machine-local key file, no external crypto dependency
   net/
     http.c/.h       libcurl wrapper: GET/POST JSON, retries, timeouts
   steam/
@@ -304,9 +308,17 @@ src/
                     shares one text_field_t { buf, cap, *len, *cursor } and a handful of
                     editing primitives (insert/backspace/delete-forward/left/right/home/
                     end at an arbitrary cursor position, not just the end) -- see 5.5.
-                    Includes a Settings screen (F2) for provider/model/base_url/num_ctx/
-                    review-count, staged in app_state_t and only written into the live
-                    config_t (then config_save()'d) on Ctrl+S; Esc discards the edit
+                    Includes a Settings screen (F2) covering every config.ini setting
+                    (provider/model/base_url/num_ctx, steam language/review-count/cache-
+                    ttl/id/api-key, review length/tone/vocab defaults) except the
+                    Anthropic/OpenAI keys, which stay env-only -- staged in app_state_t
+                    and only written into the live config_t (then config_save()'d) on
+                    Ctrl+S; Esc discards the edit. The Steam key field is masked on
+                    screen except while actively being edited, and only overwrites
+                    config_t's copy (clearing its env-sourced flag) if its staging buffer
+                    actually differs from the live value when you save -- so leaving it
+                    alone while editing something else never copies an env-sourced key
+                    into config.ini
     keys.h          the handful of termbox2 TB_KEY_* values state.c reacts to, duplicated
                     as plain macros so state.c doesn't need to include termbox2.h
     app.c/.h        termbox2 init/shutdown (incl. signal handling) and the main loop:
@@ -488,8 +500,38 @@ lands with the TUI in M4.)
 | `~/.cache/steamscribe/<appid>/reviews.json`  | sampled reviews + fetch time    |
 | `~/.cache/steamscribe/<appid>/themes.json`   | extracted themes (saves an LLM call) |
 | `~/.local/share/steamscribe/reviews/`        | saved generated reviews (`<appid>-<date>.txt`) |
+| `~/.local/share/steamscribe/secret.key`       | machine-local key for secrets stored in config.ini (0600, see 7.1) |
 
 Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries expire after `cache_ttl_hours`.
+
+### 7.1 Secrets at rest
+
+`[steam] steam_api_key` is the one config.ini value allowed to be a real secret (unlike
+`steam_id`, which is just a numeric account id). You can paste it in as plain text; on
+the very next launch, `config_load()` notices it isn't already one of this module's own
+encrypted blobs, uses it as-is for that run, and rewrites the file with the encrypted
+form (`util/secret_crypto.c`) -- so a plaintext key is never left sitting in config.ini
+past the first launch that reads it.
+
+The cipher is ChaCha20 (RFC 8439 block function, confidentiality only -- no Poly1305,
+since this isn't authenticating a network message, just obscuring a value at rest) under
+a fresh random nonce per encryption, vendored directly rather than pulled in as a
+dependency (GOBLIN has base64/md5/hashing but no general-purpose cipher, and a real crypto
+library felt heavier than this project's existing dependency footprint for one encrypted
+config value). The key is random, generated once into `secret.key` (0600, created with
+`O_EXCL` so a concurrent run can't race it into regenerating -- and overwriting -- an
+existing key, which would make every value it had encrypted undecryptable) under
+`goblin_appdir_data_dir()`, and reused for as long as that file exists.
+
+**This is explicitly not a defense against someone with access to this machine's
+filesystem** -- the key sits right next to the config file it decrypts, unprotected by
+any passphrase, so anyone who can read one can read the other. Its only job is to keep
+the key out of config.ini as plain text, so it isn't exposed by a casual `grep`, a pasted
+bug report, or an accidental `git add` of a dotfiles repo -- not to withstand a
+determined local attacker. `STEAM_API_KEY` (env) sidesteps this file entirely and takes
+priority when set; `config_t.steam_api_key_from_env` tracks which source this run's value
+came from, purely so `config_save()` (also used by the TUI Settings screen) knows never
+to copy an env-sourced key into the file just because some unrelated setting changed.
 
 ---
 
@@ -499,6 +541,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 - **Fixtures:** saved Steam JSON responses in `tests/fixtures/` so tests run offline.
 - **Fake LLM provider:** `provider = fake` returns canned JSON or text, so you can test the full pipeline without an API key.
 - **`test_pipeline`:** `pipeline_resolve_llm()`'s provider/API-key resolution -- a missing key fails fast for anthropic and for openai against the real API, but not for openai against a local `base_url`, since that's the documented no-key case.
+- **`test_secret_crypto`:** the ChaCha20 encrypt/decrypt round trip (including against a fixed key, so it doesn't depend on `/dev/urandom` behaving any particular way), that two encryptions of the same plaintext differ (fresh nonce), and that `secret_crypto_load_or_create_key()` is idempotent (isolated via `XDG_DATA_HOME`, same technique `test_config` already uses for `XDG_CONFIG_HOME`).
 - **Sanitizers:** `-DSANITIZE=ON` builds with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; CI runs a separate `sanitize` job with it (pulled forward from M5).
 
 ---

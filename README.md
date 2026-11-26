@@ -49,7 +49,7 @@ $ steamscribe valheim
 - Edit the generated review in `$EDITOR`, copy it to your clipboard, regenerate, or go back and change your answers -- saving a copy locally is still ahead
 - Full cursor-based text editing everywhere you type -- arrow keys, Home/End, forward delete -- and the notes field is a real multi-line box (Enter for a new line, Ctrl+S to continue)
 - Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
-- Press **F2** in the TUI to change provider/model/base URL/context size/review count without leaving the app or hand-editing `config.ini`
+- Press **F2** in the TUI to change any setting -- provider/model/base URL/context size, Steam language/review count/cache TTL/SteamID/API key, review length/tone/vocab defaults -- without leaving the app or hand-editing `config.ini`
 - Caches Steam data so it doesn't hammer Steam's servers
 
 ## Requirements
@@ -101,8 +101,10 @@ language    = english
 review_count = 200            ; reviews to analyze (half positive, half negative)
 cache_ttl_hours = 24
 ; steam_id = 76561198000000000  ; your own SteamID64 -- lets the review mention your
-; playtime for the game. Also needs a free Steam Web API key in STEAM_API_KEY below.
-; Both optional; the review just skips playtime if either is unset.
+; playtime for the game. Also needs a Steam Web API key -- either STEAM_API_KEY below,
+; or paste it in plain right here as steam_api_key = ... and it's encrypted at rest on
+; the next launch (see docs/DESIGN.md 7.1). Both steam_id and a key are optional; the
+; review just skips playtime if either is unset.
 
 [review]
 default_length = short        ; short | medium | long
@@ -110,12 +112,17 @@ default_tone   = casual       ; casual | neutral | enthusiastic
 default_vocab  = normal       ; normal | simple (plain, everyday words)
 ```
 
-API keys, read from the environment (never stored in the config):
+Everything above, including `steam_api_key`, can also be edited from the TUI's Settings
+screen (**F2**) instead of hand-editing the file.
+
+Anthropic/OpenAI keys, read only from the environment (never stored in the config):
 
 ```sh
 export ANTHROPIC_API_KEY=...   # provider = anthropic
 export OPENAI_API_KEY=...      # provider = openai (not needed for local Ollama)
-export STEAM_API_KEY=...       # optional -- only needed for playtime, alongside steam_id above
+export STEAM_API_KEY=...       # optional -- only needed for playtime, alongside steam_id above;
+                                # paste it into config.ini's steam_api_key instead if you'd rather not
+                                # set an env var -- see above
 ```
 
 ## Usage

@@ -113,6 +113,105 @@ static int test_steam_id_and_api_key(void)
     TEST_ASSERT(rc == 0);
     TEST_ASSERT(strcmp(cfg.steam_id, "76561198000000000") == 0);
     TEST_ASSERT(strcmp(cfg.steam_api_key, "test-steam-key") == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == true);
+
+    unsetenv("STEAM_API_KEY");
+    arena_free(&arena);
+    return 0;
+}
+
+static char *read_whole_file(const char *path)
+{
+    FILE *fp = fopen(path, "r");
+    if (!fp) return NULL;
+
+    static char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+    buf[n] = '\0';
+    fclose(fp);
+    return buf;
+}
+
+static int test_plaintext_steam_api_key_is_encrypted_on_load(void)
+{
+    unsetenv("STEAM_API_KEY");
+
+    char dir[512];
+    snprintf(dir, sizeof(dir), "%s/config_plain_key/steamscribe", TEST_TMP_DIR);
+    char mkdir_cmd[600];
+    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p '%s'", dir);
+    TEST_ASSERT(system(mkdir_cmd) == 0);
+
+    char path[600];
+    snprintf(path, sizeof(path), "%s/config.ini", dir);
+    FILE *fp = fopen(path, "w");
+    TEST_ASSERT(fp != NULL);
+    fputs("[steam]\nsteam_api_key = my-plain-steam-key\n", fp);
+    fclose(fp);
+
+    char config_home[512];
+    snprintf(config_home, sizeof(config_home), "%s/config_plain_key", TEST_TMP_DIR);
+    setenv("XDG_CONFIG_HOME", config_home, 1);
+    setenv("XDG_DATA_HOME", TEST_TMP_DIR "/data_plain_key", 1);
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg;
+    err_t err;
+    TEST_ASSERT(config_load(&arena, &cfg, &err) == 0);
+
+    /* usable this run, in plaintext, even though it was just pasted in */
+    TEST_ASSERT(strcmp(cfg.steam_api_key, "my-plain-steam-key") == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == false);
+
+    /* and the file on disk no longer has it in plaintext */
+    char *on_disk = read_whole_file(path);
+    TEST_ASSERT(on_disk != NULL);
+    TEST_ASSERT(strstr(on_disk, "my-plain-steam-key") == NULL);
+    TEST_ASSERT(strstr(on_disk, "steam_api_key = enc1:") != NULL);
+
+    /* a second load decrypts it back to the same plaintext, and leaves
+     * the already-encrypted file alone */
+    arena_t arena2;
+    arena_init(&arena2, 0);
+    config_t reloaded;
+    TEST_ASSERT(config_load(&arena2, &reloaded, &err) == 0);
+    TEST_ASSERT(strcmp(reloaded.steam_api_key, "my-plain-steam-key") == 0);
+
+    char *on_disk_again = read_whole_file(path);
+    TEST_ASSERT(on_disk_again != NULL);
+    TEST_ASSERT(strcmp(on_disk, on_disk_again) == 0);
+
+    arena_free(&arena);
+    arena_free(&arena2);
+    return 0;
+}
+
+static int test_env_steam_api_key_never_written_to_file(void)
+{
+    char config_home[512];
+    snprintf(config_home, sizeof(config_home), "%s/config_env_key_not_saved", TEST_TMP_DIR);
+    setenv("XDG_CONFIG_HOME", config_home, 1);
+    setenv("XDG_DATA_HOME", TEST_TMP_DIR "/data_env_key_not_saved", 1);
+    setenv("STEAM_API_KEY", "env-sourced-key", 1);
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg;
+    err_t err;
+    TEST_ASSERT(config_load(&arena, &cfg, &err) == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == true);
+
+    TEST_ASSERT(config_save(&cfg, &err) == 0);
+
+    char path[600];
+    snprintf(path, sizeof(path), "%s/steamscribe/config.ini", config_home);
+    char *on_disk = read_whole_file(path);
+    TEST_ASSERT(on_disk != NULL);
+    TEST_ASSERT(strstr(on_disk, "env-sourced-key") == NULL);
+    TEST_ASSERT(strstr(on_disk, "enc1:") == NULL);
 
     unsetenv("STEAM_API_KEY");
     arena_free(&arena);
@@ -121,9 +220,12 @@ static int test_steam_id_and_api_key(void)
 
 static int test_save_then_reload_round_trips(void)
 {
+    unsetenv("STEAM_API_KEY");
+
     char config_home[512];
     snprintf(config_home, sizeof(config_home), "%s/config_save_round_trip", TEST_TMP_DIR);
     setenv("XDG_CONFIG_HOME", config_home, 1);
+    setenv("XDG_DATA_HOME", TEST_TMP_DIR "/data_save_round_trip", 1);
 
     arena_t arena;
     arena_init(&arena, 0);
@@ -137,6 +239,7 @@ static int test_save_then_reload_round_trips(void)
     cfg.llm_base_url = arena_strdup(&arena, "http://localhost:11434");
     cfg.llm_num_ctx = 16384;
     cfg.review_default_vocab = arena_strdup(&arena, "simple");
+    cfg.steam_api_key = arena_strdup(&arena, "typed-in-settings-key"); /* steam_api_key_from_env already false */
 
     TEST_ASSERT(config_save(&cfg, &err) == 0);
 
@@ -151,6 +254,8 @@ static int test_save_then_reload_round_trips(void)
     TEST_ASSERT(strcmp(reloaded.llm_base_url, "http://localhost:11434") == 0);
     TEST_ASSERT(reloaded.llm_num_ctx == 16384);
     TEST_ASSERT(strcmp(reloaded.review_default_vocab, "simple") == 0);
+    TEST_ASSERT(strcmp(reloaded.steam_api_key, "typed-in-settings-key") == 0);
+    TEST_ASSERT(reloaded.steam_api_key_from_env == false);
     /* unrelated sections survive the round trip unchanged */
     TEST_ASSERT(strcmp(reloaded.steam_language, "english") == 0);
     TEST_ASSERT(reloaded.steam_review_count == 200);
@@ -166,6 +271,8 @@ int main(void)
     if (test_defaults_and_env_key()) return 1;
     if (test_reads_existing_values()) return 1;
     if (test_steam_id_and_api_key()) return 1;
+    if (test_plaintext_steam_api_key_is_encrypted_on_load()) return 1;
+    if (test_env_steam_api_key_never_written_to_file()) return 1;
     if (test_save_then_reload_round_trips()) return 1;
 
     printf("all tests passed\n");
