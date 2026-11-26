@@ -719,6 +719,23 @@ static int test_result_screen_copy_action(void)
     return 0;
 }
 
+static int test_result_screen_save_action(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_SAVE_REVIEW);
+    TEST_ASSERT(state.screen == TUI_SCREEN_RESULT); /* app.c handles the actual file write, not state.c */
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_result_screen_change_answers_goes_to_liked(void)
 {
     arena_t arena;
@@ -1164,6 +1181,7 @@ int main(void)
     if (test_vocab_step_esc_goes_back_to_length()) return 1;
     if (test_result_screen_edit_action()) return 1;
     if (test_result_screen_copy_action()) return 1;
+    if (test_result_screen_save_action()) return 1;
     if (test_result_screen_change_answers_goes_to_liked()) return 1;
     if (test_result_screen_regenerate_and_quit()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;

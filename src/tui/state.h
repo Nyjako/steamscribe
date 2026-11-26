@@ -66,6 +66,7 @@ typedef enum
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
     TUI_ACTION_COPY_REVIEW,     /* copy state->review_text to the clipboard */
+    TUI_ACTION_SAVE_REVIEW,     /* write state->review_text to ~/.local/share/steamscribe/reviews/ */
 } tui_action_t;
 
 typedef struct app_state_t

@@ -88,7 +88,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Worker thread plus animated spinner during fetch, analyze and generate (pulled forward into M4 once local-model inference turned out slow enough on CPU to need it)
 - [x] Copy to clipboard (OSC 52, plus whichever of `wl-copy` / `xclip` / `pbcopy` is installed, tried in parallel since there's no reliable success signal from either)
 - [x] Edit in `$EDITOR`, then return to the result screen (TUI only; `--plain` has no post-review menu to hang this off of)
-- [ ] Save review to `~/.local/share/steamscribe/reviews/`
+- [x] Save review to `~/.local/share/steamscribe/reviews/` -- `s` on the TUI Result screen, named `<appid>-<date>.txt`; `--plain` has no post-review menu to hang this off of (same reasoning as edit-in-$EDITOR)
 - [x] Add your own custom like/dislike items in the checklist
 - [x] Vocabulary/style option (normal vs. simple everyday words) picked per review, right after Length, in both the TUI and `--plain` -- backed by a new `[review] default_vocab` config default (not a roadmap item originally, added on request)
 - [x] Move a checklist item to the other side (liked <-> disliked), for when the AI filed something under the wrong one of your own opinions -- in both the TUI (`m`) and `--plain` (not a roadmap item originally, added on request)
