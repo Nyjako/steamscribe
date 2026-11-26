@@ -54,7 +54,10 @@ static const char *theme_side_system_prompt(bool is_liked_side)
                "Follow these rules exactly:\n"
                "- Output JSON only, no prose, no markdown code fences.\n"
                "- Shape: {\"liked\": [{\"id\": \"...\", \"label\": \"...\"}]}\n"
-               "- 5 to 8 items, most common first, no duplicates.\n"
+               "- At least 7 items, up to 14. Include every distinct point several reviewers "
+               "mention -- don't stop at a round number like 7 just because that's enough to "
+               "satisfy the minimum; if the reviews genuinely support more distinct points, "
+               "list them. No duplicates.\n"
                "- `id` is a short lowercase slug (letters, digits, underscores).\n"
                "- `label` is at most 4 words, written for a human to read in a checklist.\n"
                "- Base items only on what reviewers actually say, never invent one.\n";
@@ -65,7 +68,10 @@ static const char *theme_side_system_prompt(bool is_liked_side)
            "experience. Follow these rules exactly:\n"
            "- Output JSON only, no prose, no markdown code fences.\n"
            "- Shape: {\"disliked\": [{\"id\": \"...\", \"label\": \"...\"}]}\n"
-           "- 5 to 8 items, most common first, no duplicates.\n"
+           "- At least 7 items, up to 14. Include every distinct point several reviewers "
+           "mention -- don't stop at a round number like 7 just because that's enough to "
+           "satisfy the minimum; if the reviews genuinely support more distinct points, list "
+           "them. No duplicates.\n"
            "- `id` is a short lowercase slug (letters, digits, underscores).\n"
            "- `label` is at most 4 words, written for a human to read in a checklist.\n"
            "- Base items only on what reviewers actually say, never invent one.\n";
@@ -75,12 +81,12 @@ static const char *theme_side_json_schema(bool is_liked_side)
 {
     if (is_liked_side)
     {
-        return "{\"type\":\"object\",\"properties\":{\"liked\":{\"type\":\"array\",\"items\":"
+        return "{\"type\":\"object\",\"properties\":{\"liked\":{\"type\":\"array\",\"minItems\":7,\"maxItems\":14,\"items\":"
                "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"}},"
                "\"required\":[\"id\",\"label\"]}}},\"required\":[\"liked\"]}";
     }
 
-    return "{\"type\":\"object\",\"properties\":{\"disliked\":{\"type\":\"array\",\"items\":"
+    return "{\"type\":\"object\",\"properties\":{\"disliked\":{\"type\":\"array\",\"minItems\":7,\"maxItems\":14,\"items\":"
            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"}},"
            "\"required\":[\"id\",\"label\"]}}},\"required\":[\"disliked\"]}";
 }
