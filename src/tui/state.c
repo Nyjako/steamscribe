@@ -54,6 +54,99 @@ static bool is_printable(uint32_t ch)
     return ch >= 0x20 && ch < 0x7f;
 }
 
+/* A text field bundled as (buffer, capacity, *length, *cursor) so the
+ * editing primitives below -- and the one generic key handler built on
+ * them -- work the same way for every text input in the TUI: search,
+ * custom checklist items, notes, follow-up answers, and Settings fields.
+ * `cursor` is a byte offset into `buf`, 0..*len; insert/delete act at it,
+ * not just at the end, and the left/right/home/end keys move it. */
+typedef struct text_field_t
+{
+    char *buf;
+    size_t cap;
+    size_t *len;
+    size_t *cursor;
+} text_field_t;
+
+static void text_field_insert_char(text_field_t *f, char ch)
+{
+    if (*f->len + 1 >= f->cap) return;
+    memmove(f->buf + *f->cursor + 1, f->buf + *f->cursor, *f->len - *f->cursor);
+    f->buf[*f->cursor] = ch;
+    (*f->len)++;
+    (*f->cursor)++;
+    f->buf[*f->len] = '\0';
+}
+
+static void text_field_backspace(text_field_t *f)
+{
+    if (*f->cursor == 0) return;
+    memmove(f->buf + *f->cursor - 1, f->buf + *f->cursor, *f->len - *f->cursor);
+    (*f->len)--;
+    (*f->cursor)--;
+    f->buf[*f->len] = '\0';
+}
+
+static void text_field_delete_forward(text_field_t *f)
+{
+    if (*f->cursor >= *f->len) return;
+    memmove(f->buf + *f->cursor, f->buf + *f->cursor + 1, *f->len - *f->cursor - 1);
+    (*f->len)--;
+    f->buf[*f->len] = '\0';
+}
+
+/* Handles the editing keys every text field shares -- backspace, forward
+ * delete, left/right/home/end, and inserting a typed character -- so each
+ * field's own key handler only needs to deal with what's specific to it
+ * (Enter, Esc, Ctrl+S, ...). Returns true if it consumed the key. */
+static bool handle_text_field_key(text_field_t *f, uint32_t ch, uint16_t key, bool numeric_only)
+{
+    if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
+    {
+        text_field_backspace(f);
+        return true;
+    }
+
+    if (key == TUI_KEY_DELETE)
+    {
+        text_field_delete_forward(f);
+        return true;
+    }
+
+    if (key == TUI_KEY_ARROW_LEFT)
+    {
+        if (*f->cursor > 0) (*f->cursor)--;
+        return true;
+    }
+
+    if (key == TUI_KEY_ARROW_RIGHT)
+    {
+        if (*f->cursor < *f->len) (*f->cursor)++;
+        return true;
+    }
+
+    if (key == TUI_KEY_HOME)
+    {
+        *f->cursor = 0;
+        return true;
+    }
+
+    if (key == TUI_KEY_END)
+    {
+        *f->cursor = *f->len;
+        return true;
+    }
+
+    bool ok_char = numeric_only ? (ch >= '0' && ch <= '9') : is_printable(ch);
+    if (ok_char)
+    {
+        text_field_insert_char(f, (char)ch);
+        return true;
+    }
+
+    return false;
+}
+
 static tui_action_t handle_search_key(app_state_t *state, uint32_t ch, uint16_t key)
 {
     if (key == TUI_KEY_ENTER)
@@ -62,18 +155,8 @@ static tui_action_t handle_search_key(app_state_t *state, uint32_t ch, uint16_t 
         return TUI_ACTION_SEARCH;
     }
 
-    if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
-    {
-        if (state->search_input_len > 0) state->search_input[--state->search_input_len] = '\0';
-        return TUI_ACTION_NONE;
-    }
-
-    if (is_printable(ch) && state->search_input_len + 1 < sizeof(state->search_input))
-    {
-        state->search_input[state->search_input_len++] = (char)ch;
-        state->search_input[state->search_input_len] = '\0';
-    }
-
+    text_field_t f = {state->search_input, sizeof(state->search_input), &state->search_input_len, &state->search_input_cursor};
+    handle_text_field_key(&f, ch, key, false);
     return TUI_ACTION_NONE;
 }
 
@@ -120,6 +203,7 @@ static void adding_item_reset(app_state_t *state)
 {
     state->adding_item = false;
     state->custom_item_input_len = 0;
+    state->custom_item_input_cursor = 0;
     state->custom_item_input[0] = '\0';
 }
 
@@ -145,18 +229,8 @@ static tui_action_t handle_adding_item_key(app_state_t *state, uint32_t ch, uint
         return TUI_ACTION_NONE;
     }
 
-    if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
-    {
-        if (state->custom_item_input_len > 0) state->custom_item_input[--state->custom_item_input_len] = '\0';
-        return TUI_ACTION_NONE;
-    }
-
-    if (is_printable(ch) && state->custom_item_input_len + 1 < sizeof(state->custom_item_input))
-    {
-        state->custom_item_input[state->custom_item_input_len++] = (char)ch;
-        state->custom_item_input[state->custom_item_input_len] = '\0';
-    }
-
+    text_field_t f = {state->custom_item_input, sizeof(state->custom_item_input), &state->custom_item_input_len, &state->custom_item_input_cursor};
+    handle_text_field_key(&f, ch, key, false);
     return TUI_ACTION_NONE;
 }
 
@@ -252,20 +326,10 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
                 if (state->followup_index >= state->n_followup_questions) state->notes_step = TUI_NOTES_STEP_TEXT;
                 return TUI_ACTION_NONE;
             }
-            if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
             {
-                size_t *len = &state->followup_answer_len[state->followup_index];
-                if (*len > 0) state->followup_answer[state->followup_index][--(*len)] = '\0';
-                return TUI_ACTION_NONE;
-            }
-            if (is_printable(ch))
-            {
-                size_t *len = &state->followup_answer_len[state->followup_index];
-                if (*len + 1 < sizeof(state->followup_answer[0]))
-                {
-                    state->followup_answer[state->followup_index][(*len)++] = (char)ch;
-                    state->followup_answer[state->followup_index][*len] = '\0';
-                }
+                text_field_t f = {state->followup_answer[state->followup_index], sizeof(state->followup_answer[0]),
+                                   &state->followup_answer_len[state->followup_index], &state->followup_answer_cursor[state->followup_index]};
+                handle_text_field_key(&f, ch, key, false);
             }
             return TUI_ACTION_NONE;
 
@@ -283,20 +347,34 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
                 }
                 return TUI_ACTION_NONE;
             }
-            if (key == TUI_KEY_ENTER)
+            if (key == TUI_KEY_CTRL_S)
             {
                 state->notes_step = TUI_NOTES_STEP_RECOMMEND;
                 return TUI_ACTION_NONE;
             }
-            if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
+            if (key == TUI_KEY_ENTER)
             {
-                if (state->notes_input_len > 0) state->notes_input[--state->notes_input_len] = '\0';
+                /* Nothing typed yet -- Enter is a quick "skip this, I have
+                 * nothing to add" rather than a newline in an empty field.
+                 * Once there's content, Enter starts a new line instead;
+                 * Ctrl+S (above) is what submits from then on. This also
+                 * means a paste containing embedded newlines no longer
+                 * blows straight through to generating a review -- each
+                 * embedded Enter used to advance a whole step. */
+                if (state->notes_input_len == 0)
+                {
+                    state->notes_step = TUI_NOTES_STEP_RECOMMEND;
+                    return TUI_ACTION_NONE;
+                }
+
+                text_field_t f = {state->notes_input, sizeof(state->notes_input), &state->notes_input_len, &state->notes_input_cursor};
+                text_field_insert_char(&f, '\n');
                 return TUI_ACTION_NONE;
             }
-            if (is_printable(ch) && state->notes_input_len + 1 < sizeof(state->notes_input))
+
             {
-                state->notes_input[state->notes_input_len++] = (char)ch;
-                state->notes_input[state->notes_input_len] = '\0';
+                text_field_t f = {state->notes_input, sizeof(state->notes_input), &state->notes_input_len, &state->notes_input_cursor};
+                handle_text_field_key(&f, ch, key, false);
             }
             return TUI_ACTION_NONE;
 
@@ -350,13 +428,16 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
     }
 }
 
-static void copy_into(char *dst, size_t dst_cap, size_t *dst_len, const char *src)
+/* Copies `src` into a staging buffer and puts the cursor at the end of it
+ * -- the usual place to start editing existing text. */
+static void copy_into(char *dst, size_t dst_cap, size_t *dst_len, size_t *dst_cursor, const char *src)
 {
     size_t len = strlen(src);
     if (len >= dst_cap) len = dst_cap - 1;
     memcpy(dst, src, len);
     dst[len] = '\0';
     *dst_len = len;
+    *dst_cursor = len;
 }
 
 static void settings_enter(app_state_t *state)
@@ -377,32 +458,38 @@ static void settings_enter(app_state_t *state)
         }
     }
 
-    copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, state->cfg->llm_model);
-    copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, state->cfg->llm_base_url);
+    copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, &state->settings_model_cursor, state->cfg->llm_model);
+    copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, &state->settings_base_url_cursor, state->cfg->llm_base_url);
 
-    char num_ctx_str[TUI_SETTINGS_NUM_CTX_CAP];
-    snprintf(num_ctx_str, sizeof(num_ctx_str), "%d", state->cfg->llm_num_ctx);
-    copy_into(state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, num_ctx_str);
+    char num_str[TUI_SETTINGS_NUM_CTX_CAP];
+    snprintf(num_str, sizeof(num_str), "%d", state->cfg->llm_num_ctx);
+    copy_into(state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, &state->settings_num_ctx_cursor, num_str);
+
+    snprintf(num_str, sizeof(num_str), "%d", state->cfg->steam_review_count);
+    copy_into(state->settings_review_count, sizeof(state->settings_review_count), &state->settings_review_count_len, &state->settings_review_count_cursor, num_str);
 }
 
 /* Reverts one field's edit buffer back to *cfg's value (Esc-while-editing). */
 static void settings_reset_field(app_state_t *state, tui_settings_field_t field)
 {
+    char num_str[TUI_SETTINGS_NUM_CTX_CAP];
+
     switch (field)
     {
         case TUI_SETTINGS_FIELD_MODEL:
-            copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, state->cfg->llm_model);
+            copy_into(state->settings_model, sizeof(state->settings_model), &state->settings_model_len, &state->settings_model_cursor, state->cfg->llm_model);
             break;
         case TUI_SETTINGS_FIELD_BASE_URL:
-            copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, state->cfg->llm_base_url);
+            copy_into(state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, &state->settings_base_url_cursor, state->cfg->llm_base_url);
             break;
         case TUI_SETTINGS_FIELD_NUM_CTX:
-        {
-            char num_ctx_str[TUI_SETTINGS_NUM_CTX_CAP];
-            snprintf(num_ctx_str, sizeof(num_ctx_str), "%d", state->cfg->llm_num_ctx);
-            copy_into(state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, num_ctx_str);
+            snprintf(num_str, sizeof(num_str), "%d", state->cfg->llm_num_ctx);
+            copy_into(state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, &state->settings_num_ctx_cursor, num_str);
             break;
-        }
+        case TUI_SETTINGS_FIELD_REVIEW_COUNT:
+            snprintf(num_str, sizeof(num_str), "%d", state->cfg->steam_review_count);
+            copy_into(state->settings_review_count, sizeof(state->settings_review_count), &state->settings_review_count_len, &state->settings_review_count_cursor, num_str);
+            break;
         default:
             break;
     }
@@ -416,41 +503,32 @@ static void settings_commit_to_cfg(app_state_t *state)
     state->cfg->llm_model = arena_strdup(state->arena, state->settings_model);
     state->cfg->llm_base_url = arena_strdup(state->arena, state->settings_base_url);
     state->cfg->llm_num_ctx = state->settings_num_ctx_len > 0 ? atoi(state->settings_num_ctx) : 0;
+    state->cfg->steam_review_count = state->settings_review_count_len > 0 ? atoi(state->settings_review_count) : state->cfg->steam_review_count;
 }
 
 static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_t key)
 {
     if (state->settings_editing)
     {
-        char *buf = NULL;
-        size_t *len = NULL;
-        size_t cap = 0;
+        text_field_t f;
 
         switch (state->settings_field)
         {
             case TUI_SETTINGS_FIELD_MODEL:
-                buf = state->settings_model;
-                len = &state->settings_model_len;
-                cap = sizeof(state->settings_model);
+                f = (text_field_t){state->settings_model, sizeof(state->settings_model), &state->settings_model_len, &state->settings_model_cursor};
                 break;
             case TUI_SETTINGS_FIELD_BASE_URL:
-                buf = state->settings_base_url;
-                len = &state->settings_base_url_len;
-                cap = sizeof(state->settings_base_url);
+                f = (text_field_t){state->settings_base_url, sizeof(state->settings_base_url), &state->settings_base_url_len, &state->settings_base_url_cursor};
                 break;
             case TUI_SETTINGS_FIELD_NUM_CTX:
-                buf = state->settings_num_ctx;
-                len = &state->settings_num_ctx_len;
-                cap = sizeof(state->settings_num_ctx);
+                f = (text_field_t){state->settings_num_ctx, sizeof(state->settings_num_ctx), &state->settings_num_ctx_len, &state->settings_num_ctx_cursor};
+                break;
+            case TUI_SETTINGS_FIELD_REVIEW_COUNT:
+                f = (text_field_t){state->settings_review_count, sizeof(state->settings_review_count), &state->settings_review_count_len, &state->settings_review_count_cursor};
                 break;
             default:
-                break;
-        }
-
-        if (!buf)
-        {
-            state->settings_editing = false;
-            return TUI_ACTION_NONE;
+                state->settings_editing = false;
+                return TUI_ACTION_NONE;
         }
 
         if (key == TUI_KEY_ENTER)
@@ -466,21 +544,8 @@ static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_
             return TUI_ACTION_NONE;
         }
 
-        if (key == TUI_KEY_BACKSPACE || key == TUI_KEY_BACKSPACE2)
-        {
-            if (*len > 0) buf[--(*len)] = '\0';
-            return TUI_ACTION_NONE;
-        }
-
-        bool numeric_only = (state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
-        bool ok_char = numeric_only ? (ch >= '0' && ch <= '9') : is_printable(ch);
-
-        if (ok_char && *len + 1 < cap)
-        {
-            buf[(*len)++] = (char)ch;
-            buf[*len] = '\0';
-        }
-
+        bool numeric_only = (state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX || state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+        handle_text_field_key(&f, ch, key, numeric_only);
         return TUI_ACTION_NONE;
     }
 
@@ -554,6 +619,11 @@ static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
     if (ch == 'e')
     {
         return TUI_ACTION_EDIT_REVIEW;
+    }
+
+    if (ch == 'c')
+    {
+        return TUI_ACTION_COPY_REVIEW;
     }
 
     if (ch == 'o')
@@ -678,6 +748,7 @@ void tui_apply_followup_generated(app_state_t *state, char **questions, size_t c
     {
         state->followup_answer[i][0] = '\0';
         state->followup_answer_len[i] = 0;
+        state->followup_answer_cursor[i] = 0;
     }
 
     state->notes_step = (count > 0) ? TUI_NOTES_STEP_FOLLOWUP : TUI_NOTES_STEP_TEXT;

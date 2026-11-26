@@ -13,12 +13,13 @@
 #include "util/arena.h"
 
 #define TUI_SEARCH_INPUT_CAP 128
-#define TUI_NOTES_INPUT_CAP 512
+#define TUI_NOTES_INPUT_CAP 8192 /* generous -- a multi-paragraph note shouldn't hit this */
 #define TUI_STATUS_CAP 512 /* matches err_t.msg so a wrapped err.msg never gets truncated again here */
 #define TUI_SETTINGS_MODEL_CAP 128
 #define TUI_SETTINGS_URL_CAP 256
 #define TUI_SETTINGS_NUM_CTX_CAP 16
-#define TUI_CUSTOM_ITEM_CAP 128
+#define TUI_SETTINGS_REVIEW_COUNT_CAP 16
+#define TUI_CUSTOM_ITEM_CAP 256
 
 typedef enum
 {
@@ -50,6 +51,7 @@ typedef enum
     TUI_SETTINGS_FIELD_MODEL,
     TUI_SETTINGS_FIELD_BASE_URL,
     TUI_SETTINGS_FIELD_NUM_CTX,
+    TUI_SETTINGS_FIELD_REVIEW_COUNT,
     TUI_SETTINGS_FIELD_COUNT,
 } tui_settings_field_t;
 
@@ -63,6 +65,7 @@ typedef enum
     TUI_ACTION_GENERATE_REVIEW, /* call the LLM with state's notes/recommend/length/tone */
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
+    TUI_ACTION_COPY_REVIEW,     /* copy state->review_text to the clipboard */
 } tui_action_t;
 
 typedef struct app_state_t
@@ -75,6 +78,7 @@ typedef struct app_state_t
 
     char search_input[TUI_SEARCH_INPUT_CAP];
     size_t search_input_len;
+    size_t search_input_cursor;
 
     steam_search_results_t search_results;
     size_t select_cursor;
@@ -91,6 +95,7 @@ typedef struct app_state_t
     bool adding_item;
     char custom_item_input[TUI_CUSTOM_ITEM_CAP];
     size_t custom_item_input_len;
+    size_t custom_item_input_cursor;
 
     /* Optional, AI-generated follow-up questions asked right after
      * Disliked -- best-effort: generation failure just means zero
@@ -100,9 +105,11 @@ typedef struct app_state_t
     size_t followup_index;
     char followup_answer[FOLLOWUP_MAX_QUESTIONS][TUI_NOTES_INPUT_CAP];
     size_t followup_answer_len[FOLLOWUP_MAX_QUESTIONS];
+    size_t followup_answer_cursor[FOLLOWUP_MAX_QUESTIONS];
 
     char notes_input[TUI_NOTES_INPUT_CAP];
     size_t notes_input_len;
+    size_t notes_input_cursor;
     tui_notes_step_t notes_step;
     bool recommend;
     review_len_t length;
@@ -119,10 +126,16 @@ typedef struct app_state_t
     int settings_provider_index; /* into the fixed anthropic/openai/ollama list */
     char settings_model[TUI_SETTINGS_MODEL_CAP];
     size_t settings_model_len;
+    size_t settings_model_cursor;
     char settings_base_url[TUI_SETTINGS_URL_CAP];
     size_t settings_base_url_len;
+    size_t settings_base_url_cursor;
     char settings_num_ctx[TUI_SETTINGS_NUM_CTX_CAP];
     size_t settings_num_ctx_len;
+    size_t settings_num_ctx_cursor;
+    char settings_review_count[TUI_SETTINGS_REVIEW_COUNT_CAP];
+    size_t settings_review_count_len;
+    size_t settings_review_count_cursor;
 } app_state_t;
 
 /* Zeroes `state` and sets it up to start either on the Search screen
