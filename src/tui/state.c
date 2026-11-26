@@ -309,10 +309,6 @@ static tui_action_t handle_checklist_key(app_state_t *state, uint32_t ch, uint16
     return TUI_ACTION_NONE;
 }
 
-/* Defined below; copies `src` into a fixed text-field buffer with the
- * cursor at the end, the usual place to start editing existing text. */
-static void copy_into(char *dst, size_t dst_cap, size_t *dst_len, size_t *dst_cursor, const char *src);
-
 static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t key)
 {
     switch (state->notes_step)
@@ -460,22 +456,20 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
             else if (ch == 'b' || ch == 'B') state->bbcode = true;
             else return TUI_ACTION_NONE;
 
-            state->notes_step = TUI_NOTES_STEP_SPOILER;
-
-            /* Pre-fill with a best guess so the step isn't always a blank
-             * field -- only when nothing's there yet, so this never
-             * clobbers an answer from a previous pass through (e.g. via
-             * "change answers" from the Result screen). The player edits or
-             * clears it like anything else they typed; nothing ships
-             * without going through this field. */
+            /* Best-guess the Spoiler step's pre-fill via one extra LLM call
+             * -- only when nothing's there yet, so this never clobbers an
+             * answer from a previous pass through (e.g. via "change
+             * answers" from the Result screen), and never fires twice for
+             * the same pass. The player still edits or clears whatever
+             * comes back, the same as if they'd typed it themselves;
+             * nothing ships without going through this field. */
             if (state->spoiler_input_len == 0)
             {
-                const char *answers[FOLLOWUP_MAX_QUESTIONS];
-                for (size_t i = 0; i < state->n_followup_questions; i++) answers[i] = state->followup_answer[i];
-
-                char *guess = review_predict_spoiler(state->arena, state->notes_input, answers, state->n_followup_questions);
-                if (guess[0]) copy_into(state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor, guess);
+                state->screen = TUI_SCREEN_LOADING_SPOILER_PREDICT;
+                return TUI_ACTION_PREDICT_SPOILER;
             }
+
+            state->notes_step = TUI_NOTES_STEP_SPOILER;
             return TUI_ACTION_NONE;
 
         case TUI_NOTES_STEP_SPOILER:
@@ -856,6 +850,22 @@ void tui_apply_followup_failed(app_state_t *state)
     state->n_followup_questions = 0;
     state->followup_index = 0;
     state->notes_step = TUI_NOTES_STEP_TEXT;
+    state->screen = TUI_SCREEN_NOTES;
+}
+
+void tui_apply_spoiler_predicted(app_state_t *state, const char *guess)
+{
+    state->notes_step = TUI_NOTES_STEP_SPOILER;
+    state->screen = TUI_SCREEN_NOTES;
+
+    if (guess && guess[0]) copy_into(state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor, guess);
+}
+
+void tui_apply_spoiler_predict_failed(app_state_t *state)
+{
+    /* Best-effort, optional: on failure, the step just starts blank, same
+     * as if nothing had matched. */
+    state->notes_step = TUI_NOTES_STEP_SPOILER;
     state->screen = TUI_SCREEN_NOTES;
 }
 

@@ -215,16 +215,23 @@ spoiler content always landing at the end rather than inline with the surroundin
 The format choice only affects this one block -- the main review body's wording is the
 same either way; BBCode markup elsewhere (bold, lists, ...) was explicitly out of scope.
 
-The Spoiler step also pre-fills itself with a best guess (`review_predict_spoiler()`,
-also pure and unit-tested): a plain keyword match (endings, deaths, twists, reveals, ...)
-over the notes and follow-up answers, sentence by sentence. This is deliberately *not*
-the same thing as the "let the model guess" option rejected above -- the guess never
-ships on its own; it only pre-fills the field the player already edits or clears before
-Ctrl+S/Enter, the same as if they'd typed it themselves. Only applied when the field is
-still empty, so it never clobbers an answer already typed (including after going back
-through `o`). A keyword heuristic was picked over a second LLM call here specifically to
-avoid a new async/loading state in the TUI's otherwise-synchronous step chain -- the only
-other background work is the worker thread for fetch/analyze/generate.
+The Spoiler step also pre-fills itself with a best guess (`core/spoiler_predict.c`, same
+prompt/parse/retry shape as `core/followup.c`): one extra, best-effort LLM call that
+quotes verbatim from the notes and follow-up answers whatever sounds like a genuine plot
+spoiler, or `{"spoiler": ""}` when nothing does. This is deliberately *not* the same
+thing as the "let the model guess" option rejected above -- the guess never ships on its
+own; it only pre-fills the field the player already edits or clears before Ctrl+S/Enter,
+the same as if they'd typed it themselves. Only triggered when the field is still empty,
+so it never clobbers an answer already typed (including after going back through `o`),
+and a failure just leaves the field blank rather than surfacing an error for something
+that was never required. Runs on its own loading screen (`TUI_SCREEN_LOADING_SPOILER_
+PREDICT`), the same pattern as the follow-up questions' loading screen.
+
+A plain keyword match was tried first (no network call, no new loading screen) but
+turned out too narrow in practice: real notes describing a specific plot point rarely
+contain any of a fixed list of generic words like "ending" or "twist", so it almost never
+fired. The LLM call costs one extra round trip but actually generalizes to whatever the
+player happened to write.
 
 From the Result screen, the TUI also offers to go back through Liked/Disliked/Notes/
 Options with everything from last time still in place (`o`) -- for fixing a wrong

@@ -1,9 +1,5 @@
 #include "core/review.h"
 
-#include <ctype.h>
-#include <string.h>
-#include <strings.h>
-
 #include "util/strbuf.h"
 
 static const char *length_instruction(review_len_t length)
@@ -121,67 +117,6 @@ char *review_append_spoiler(arena_t *arena, const review_request_t *req, const c
 
     if (req->bbcode) strbuf_append_fmt(&out, "\n\n[spoiler]%s[/spoiler]", req->spoiler_notes);
     else strbuf_append_fmt(&out, "\n\nSpoilers: %s", req->spoiler_notes);
-
-    char *result = arena_strdup(arena, strbuf_cstr(&out));
-    strbuf_free(&out);
-    return result;
-}
-
-static const char *const SPOILER_KEYWORDS[] = {
-    "ending",     "end of the game", "final boss",  "last boss",   "plot twist",   "twist",     "dies",     "died",
-    "death of",   "kills",           "killed",      "reveal",      "revealed",     "secret ending", "true ending",
-    "post-game",  "epilogue",        "credits roll", "final chapter", "last level", "final level",
-    "betrays",    "betrayal",        "spoiler",     "turns out to be", "is actually", "final fight", "final battle",
-};
-#define N_SPOILER_KEYWORDS (sizeof(SPOILER_KEYWORDS) / sizeof(SPOILER_KEYWORDS[0]))
-
-static bool sentence_looks_spoilery(const char *sentence, size_t len)
-{
-    for (size_t i = 0; i < N_SPOILER_KEYWORDS; i++)
-    {
-        size_t klen = strlen(SPOILER_KEYWORDS[i]);
-        if (klen > len) continue;
-        for (size_t pos = 0; pos + klen <= len; pos++)
-        {
-            if (strncasecmp(sentence + pos, SPOILER_KEYWORDS[i], klen) == 0) return true;
-        }
-    }
-    return false;
-}
-
-/* Appends every sentence in `text` that looks spoiler-y to `out`, joined
- * with ". ". Sentences are split on '.', '!', '?', '\n' -- good enough for
- * free-text notes, not meant to be a real sentence tokenizer. */
-static void scan_text_for_spoilers(strbuf_t *out, const char *text)
-{
-    if (!text || !text[0]) return;
-
-    const char *p = text;
-    while (*p)
-    {
-        while (*p && (isspace((unsigned char)*p) || *p == '.' || *p == '!' || *p == '?')) p++;
-
-        const char *start = p;
-        while (*p && *p != '.' && *p != '!' && *p != '?' && *p != '\n') p++;
-
-        size_t len = (size_t)(p - start);
-        while (len > 0 && isspace((unsigned char)start[len - 1])) len--;
-
-        if (len > 0 && sentence_looks_spoilery(start, len))
-        {
-            if (out->len > 0) strbuf_append_cstr(out, ". ");
-            strbuf_append(out, start, len);
-        }
-    }
-}
-
-char *review_predict_spoiler(arena_t *arena, const char *notes, const char *const *answers, size_t n_answers)
-{
-    strbuf_t out;
-    strbuf_init(&out);
-
-    scan_text_for_spoilers(&out, notes);
-    for (size_t i = 0; i < n_answers; i++) scan_text_for_spoilers(&out, answers[i]);
 
     char *result = arena_strdup(arena, strbuf_cstr(&out));
     strbuf_free(&out);

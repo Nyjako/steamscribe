@@ -16,6 +16,7 @@
 #include "core/followup.h"
 #include "core/pipeline.h"
 #include "core/review.h"
+#include "core/spoiler_predict.h"
 #include "tui/keys.h"
 #include "tui/state.h"
 #include "tui/widgets.h"
@@ -61,7 +62,7 @@ static void install_signal_handlers(void)
 
 static bool is_loading_screen(tui_screen_t screen)
 {
-    return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_REVIEW;
+    return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_SPOILER_PREDICT || screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
 static void draw_settings_field(int y, const char *label, const char *value, size_t cursor, bool focused, bool editing)
@@ -136,6 +137,11 @@ static void draw(app_state_t *state, char spinner_ch)
         case TUI_SCREEN_LOADING_FOLLOWUP:
             widgets_draw_header(1, "Thinking of a few questions...");
             tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Coming up with a few optional follow-up questions...", spinner_ch);
+            break;
+
+        case TUI_SCREEN_LOADING_SPOILER_PREDICT:
+            widgets_draw_header(1, "Checking for spoilers...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Guessing whether any of your notes sound like a spoiler...", spinner_ch);
             break;
 
         case TUI_SCREEN_NOTES:
@@ -272,6 +278,7 @@ typedef struct bg_result_t
     theme_set_t themes;
     char **questions;
     size_t n_questions;
+    char *spoiler_guess;
     char *review_text;
 } bg_result_t;
 
@@ -336,6 +343,38 @@ static void *bg_generate_followup_thread(void *argp)
         result->questions = questions;
         result->n_questions = n_questions;
     }
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
+
+static void *bg_predict_spoiler_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    int rc = pipeline_resolve_llm(ctx->cfg, &provider, &llm_cfg, &err);
+
+    char *spoiler_guess = NULL;
+    if (rc == 0)
+    {
+        const char *answers[FOLLOWUP_MAX_QUESTIONS];
+        for (size_t i = 0; i < ctx->state->n_followup_questions; i++) answers[i] = ctx->state->followup_answer[i];
+
+        rc = spoiler_predict_generate(ctx->state->arena, provider, &llm_cfg, ctx->state->game.name, ctx->state->notes_input, answers, ctx->state->n_followup_questions, &spoiler_guess, &err);
+    }
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0) result->spoiler_guess = spoiler_guess;
     result->done = true;
     pthread_mutex_unlock(&result->mutex);
 
@@ -679,6 +718,13 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
         if (result.rc == 0) tui_apply_followup_generated(state, result.questions, result.n_questions);
         else tui_apply_followup_failed(state);
     }
+    else if (state->screen == TUI_SCREEN_LOADING_SPOILER_PREDICT)
+    {
+        /* Best-effort and optional: a failure here just means the Spoiler
+         * step starts blank, never a hard error shown to the user. */
+        if (result.rc == 0) tui_apply_spoiler_predicted(state, result.spoiler_guess);
+        else tui_apply_spoiler_predict_failed(state);
+    }
     else
     {
         if (result.rc == 0) tui_apply_review_generated(state, result.review_text);
@@ -708,6 +754,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
             void *(*thread_fn)(void *) = bg_generate_review_thread;
             if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
             else if (loading_screen == TUI_SCREEN_LOADING_FOLLOWUP) thread_fn = bg_generate_followup_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_SPOILER_PREDICT) thread_fn = bg_predict_spoiler_thread;
 
             run_loading_screen(&state, cfg, thread_fn);
             continue;

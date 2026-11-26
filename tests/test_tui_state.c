@@ -512,8 +512,12 @@ static int test_notes_flow_to_generate_review(void)
     TEST_ASSERT(state.vocab == REVIEW_VOCAB_SIMPLE);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FORMAT);
 
-    TEST_ASSERT(tui_handle_key(&state, 'b', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(tui_handle_key(&state, 'b', 0) == TUI_ACTION_PREDICT_SPOILER);
     TEST_ASSERT(state.bbcode == true);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_SPOILER_PREDICT);
+
+    /* best-effort: a failed/empty guess just leaves the step blank */
+    tui_apply_spoiler_predict_failed(&state);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
 
     /* a blank spoiler field just means "no spoiler" -- Enter still advances */
@@ -594,15 +598,15 @@ static int test_format_step_esc_and_choice(void)
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_VOCAB);
 
     state.notes_step = TUI_NOTES_STEP_FORMAT;
-    TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_PREDICT_SPOILER);
     TEST_ASSERT(state.bbcode == false);
-    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_SPOILER_PREDICT);
 
     arena_free(&arena);
     return 0;
 }
 
-static int test_format_step_prefills_spoiler_guess_from_notes(void)
+static int test_format_step_skips_prediction_when_spoiler_already_typed(void)
 {
     arena_t arena;
     arena_init(&arena, 0);
@@ -611,31 +615,6 @@ static int test_format_step_prefills_spoiler_guess_from_notes(void)
     app_state_t state;
     tui_state_init(&state, &arena, &cfg, NULL, 892970);
 
-    strcpy(state.notes_input, "Loved it. The ending made me cry though.");
-    state.notes_input_len = strlen(state.notes_input);
-
-    state.screen = TUI_SCREEN_NOTES;
-    state.notes_step = TUI_NOTES_STEP_FORMAT;
-    TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_NONE);
-
-    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
-    TEST_ASSERT(strstr(state.spoiler_input, "The ending made me cry though") != NULL);
-
-    arena_free(&arena);
-    return 0;
-}
-
-static int test_format_step_does_not_overwrite_existing_spoiler_input(void)
-{
-    arena_t arena;
-    arena_init(&arena, 0);
-
-    config_t cfg = make_fake_config(&arena);
-    app_state_t state;
-    tui_state_init(&state, &arena, &cfg, NULL, 892970);
-
-    strcpy(state.notes_input, "The ending made me cry though.");
-    state.notes_input_len = strlen(state.notes_input);
     strcpy(state.spoiler_input, "my own typed spoiler");
     state.spoiler_input_len = strlen(state.spoiler_input);
 
@@ -643,7 +622,64 @@ static int test_format_step_does_not_overwrite_existing_spoiler_input(void)
     state.notes_step = TUI_NOTES_STEP_FORMAT;
     TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_NONE);
 
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
     TEST_ASSERT(strcmp(state.spoiler_input, "my own typed spoiler") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_spoiler_predicted_prefills_the_field(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_spoiler_predicted(&state, "The ending made me cry though.");
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(strcmp(state.spoiler_input, "The ending made me cry though.") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_spoiler_predicted_empty_guess_leaves_field_blank(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_spoiler_predicted(&state, "");
+
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(state.spoiler_input_len == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_spoiler_predict_failed_leaves_field_blank(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_spoiler_predict_failed(&state);
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(state.spoiler_input_len == 0);
 
     arena_free(&arena);
     return 0;
@@ -1319,8 +1355,10 @@ int main(void)
     if (test_game_loaded_lands_on_liked()) return 1;
     if (test_checklist_toggle_and_navigate()) return 1;
     if (test_format_step_esc_and_choice()) return 1;
-    if (test_format_step_prefills_spoiler_guess_from_notes()) return 1;
-    if (test_format_step_does_not_overwrite_existing_spoiler_input()) return 1;
+    if (test_format_step_skips_prediction_when_spoiler_already_typed()) return 1;
+    if (test_apply_spoiler_predicted_prefills_the_field()) return 1;
+    if (test_apply_spoiler_predicted_empty_guess_leaves_field_blank()) return 1;
+    if (test_apply_spoiler_predict_failed_leaves_field_blank()) return 1;
     if (test_spoiler_step_esc_and_ctrl_s()) return 1;
     if (test_checklist_add_custom_item()) return 1;
     if (test_checklist_add_custom_item_esc_cancels()) return 1;
