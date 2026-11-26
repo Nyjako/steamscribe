@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "core/followup.h"
 #include "core/review.h"
 #include "core/themes.h"
 #include "steam/steam.h"
@@ -26,6 +27,7 @@ typedef enum
     TUI_SCREEN_LOADING_GAME,
     TUI_SCREEN_LIKED,
     TUI_SCREEN_DISLIKED,
+    TUI_SCREEN_LOADING_FOLLOWUP,
     TUI_SCREEN_NOTES,
     TUI_SCREEN_LOADING_REVIEW,
     TUI_SCREEN_RESULT,
@@ -35,6 +37,7 @@ typedef enum
 
 typedef enum
 {
+    TUI_NOTES_STEP_FOLLOWUP,
     TUI_NOTES_STEP_TEXT,
     TUI_NOTES_STEP_RECOMMEND,
     TUI_NOTES_STEP_LENGTH,
@@ -56,6 +59,7 @@ typedef enum
     TUI_ACTION_QUIT,
     TUI_ACTION_SEARCH,          /* run a search for state->search_input */
     TUI_ACTION_LOAD_GAME,       /* fetch game info + themes for state->appid */
+    TUI_ACTION_GENERATE_FOLLOWUP, /* generate optional follow-up questions from state->themes */
     TUI_ACTION_GENERATE_REVIEW, /* call the LLM with state's notes/recommend/length/tone */
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
@@ -87,6 +91,15 @@ typedef struct app_state_t
     bool adding_item;
     char custom_item_input[TUI_CUSTOM_ITEM_CAP];
     size_t custom_item_input_len;
+
+    /* Optional, AI-generated follow-up questions asked right after
+     * Disliked -- best-effort: generation failure just means zero
+     * questions, never a hard error that blocks the flow. */
+    char **followup_questions;
+    size_t n_followup_questions;
+    size_t followup_index;
+    char followup_answer[FOLLOWUP_MAX_QUESTIONS][TUI_NOTES_INPUT_CAP];
+    size_t followup_answer_len[FOLLOWUP_MAX_QUESTIONS];
 
     char notes_input[TUI_NOTES_INPUT_CAP];
     size_t notes_input_len;
@@ -132,6 +145,8 @@ void tui_apply_search_results(app_state_t *state, steam_search_results_t results
 void tui_apply_search_failed(app_state_t *state, const char *message);
 void tui_apply_game_loaded(app_state_t *state, uint32_t appid, game_info_t game, theme_set_t themes);
 void tui_apply_game_load_failed(app_state_t *state, const char *message);
+void tui_apply_followup_generated(app_state_t *state, char **questions, size_t count);
+void tui_apply_followup_failed(app_state_t *state);
 void tui_apply_review_generated(app_state_t *state, char *review_text);
 void tui_apply_review_failed(app_state_t *state, const char *message);
 void tui_apply_settings_saved(app_state_t *state);

@@ -60,3 +60,23 @@ void widgets_draw_wrapped_text(arena_t *arena, int x, int y, int width, const ch
     char **lines = text_wrap(arena, text, width, &count);
     for (size_t i = 0; i < count; i++) tb_print(x, y + (int)i, TB_DEFAULT, TB_DEFAULT, lines[i]);
 }
+
+size_t widgets_draw_wrapped_input(arena_t *arena, int y, int width, const char *label, const char *buffer, bool editing)
+{
+    size_t label_len = strlen(label);
+    size_t buffer_len = strlen(buffer);
+
+    char *combined = (char *)arena_alloc(arena, label_len + 1 + buffer_len + 1);
+    memcpy(combined, label, label_len);
+    combined[label_len] = ' ';
+    memcpy(combined + label_len + 1, buffer, buffer_len);
+    combined[label_len + 1 + buffer_len] = '\0';
+
+    size_t count = 0;
+    char **lines = text_wrap(arena, combined, width, &count);
+    for (size_t i = 0; i < count; i++) tb_print(2, y + (int)i, TB_DEFAULT, TB_DEFAULT, lines[i]);
+
+    if (editing && count > 0) tb_set_cursor(2 + (int)strlen(lines[count - 1]), y + (int)count - 1);
+
+    return count > 0 ? count : 1;
+}

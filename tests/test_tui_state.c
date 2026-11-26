@@ -275,6 +275,197 @@ static int test_checklist_toggle_and_navigate(void)
     return 0;
 }
 
+static int test_disliked_enter_triggers_followup_generation(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    theme_set_t themes = make_game_themes(&arena);
+    tui_apply_game_loaded(&state, 892970, game, themes);
+    state.screen = TUI_SCREEN_DISLIKED;
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_GENERATE_FOLLOWUP);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_FOLLOWUP);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_followup_generated_lands_on_followup_step(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+
+    char *questions[2];
+    questions[0] = (char *)"What moment stuck with you most?";
+    questions[1] = (char *)"Would you play the sequel?";
+
+    tui_apply_followup_generated(&state, questions, 2);
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FOLLOWUP);
+    TEST_ASSERT(state.n_followup_questions == 2);
+    TEST_ASSERT(state.followup_index == 0);
+    TEST_ASSERT(state.followup_answer[0][0] == '\0');
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_followup_generated_zero_questions_skips_to_text(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+
+    tui_apply_followup_generated(&state, NULL, 0);
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_TEXT);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_followup_failed_skips_to_text(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+
+    tui_apply_followup_failed(&state);
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_TEXT);
+    TEST_ASSERT(state.n_followup_questions == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_followup_step_answer_and_advance_to_next_question(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+
+    char *questions[2];
+    questions[0] = (char *)"What moment stuck with you most?";
+    questions[1] = (char *)"Would you play the sequel?";
+    tui_apply_followup_generated(&state, questions, 2);
+
+    tui_handle_key(&state, 'y', 0);
+    tui_handle_key(&state, 'e', 0);
+    tui_handle_key(&state, 's', 0);
+    TEST_ASSERT(strcmp(state.followup_answer[0], "yes") == 0);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.followup_index == 1);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FOLLOWUP); /* still a question left */
+
+    /* leave the last question blank (skip) and move on */
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_TEXT);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_followup_step_esc_goes_back_through_questions_then_to_disliked(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+
+    char *questions[2];
+    questions[0] = (char *)"What moment stuck with you most?";
+    questions[1] = (char *)"Would you play the sequel?";
+    tui_apply_followup_generated(&state, questions, 2);
+
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* move to question 2 */
+    TEST_ASSERT(state.followup_index == 1);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.followup_index == 0);
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.screen == TUI_SCREEN_DISLIKED);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_notes_text_esc_returns_to_last_followup_question_when_any(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+
+    char *questions[1];
+    questions[0] = (char *)"What moment stuck with you most?";
+    tui_apply_followup_generated(&state, questions, 1);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* skip straight to TEXT */
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_TEXT);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FOLLOWUP);
+    TEST_ASSERT(state.followup_index == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_notes_text_esc_goes_to_disliked_when_no_followup(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+    state.screen = TUI_SCREEN_LOADING_FOLLOWUP;
+    tui_apply_followup_failed(&state); /* zero questions */
+
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_TEXT);
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.screen == TUI_SCREEN_DISLIKED);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_notes_flow_to_generate_review(void)
 {
     arena_t arena;
@@ -841,6 +1032,14 @@ int main(void)
     if (test_checklist_add_blank_item_is_noop()) return 1;
     if (test_checklist_move_item_to_other_side()) return 1;
     if (test_checklist_move_last_item_clamps_cursor()) return 1;
+    if (test_disliked_enter_triggers_followup_generation()) return 1;
+    if (test_apply_followup_generated_lands_on_followup_step()) return 1;
+    if (test_apply_followup_generated_zero_questions_skips_to_text()) return 1;
+    if (test_apply_followup_failed_skips_to_text()) return 1;
+    if (test_followup_step_answer_and_advance_to_next_question()) return 1;
+    if (test_followup_step_esc_goes_back_through_questions_then_to_disliked()) return 1;
+    if (test_notes_text_esc_returns_to_last_followup_question_when_any()) return 1;
+    if (test_notes_text_esc_goes_to_disliked_when_no_followup()) return 1;
     if (test_notes_flow_to_generate_review()) return 1;
     if (test_vocab_step_esc_goes_back_to_length()) return 1;
     if (test_result_screen_edit_action()) return 1;

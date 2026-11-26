@@ -10,6 +10,7 @@
 
 #include <termbox2.h>
 
+#include "core/followup.h"
 #include "core/pipeline.h"
 #include "core/review.h"
 #include "tui/keys.h"
@@ -36,7 +37,7 @@ static void install_signal_handlers(void)
 
 static bool is_loading_screen(tui_screen_t screen)
 {
-    return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_REVIEW;
+    return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_REVIEW;
 }
 
 static void draw_settings_field(int y, const char *label, const char *value, bool focused, bool editing)
@@ -83,34 +84,48 @@ static void draw(app_state_t *state, char spinner_ch)
             if (state->adding_item) widgets_draw_text_input(3 + (int)state->themes.n_disliked + 1, "New item >", state->custom_item_input);
             break;
 
+        case TUI_SCREEN_LOADING_FOLLOWUP:
+            widgets_draw_header(1, "Thinking of a few questions...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Coming up with a few optional follow-up questions...", spinner_ch);
+            break;
+
         case TUI_SCREEN_NOTES:
+        {
+            int width = tb_width() - 4;
+            if (width < 1) width = 1;
+
+            if (state->notes_step == TUI_NOTES_STEP_FOLLOWUP)
+            {
+                widgets_draw_header(1, "A few optional questions -- Enter to answer (blank skips), Esc back, q quits");
+
+                char label[TUI_NOTES_INPUT_CAP + 32];
+                snprintf(label, sizeof(label), "(%zu/%zu) %s >", state->followup_index + 1, state->n_followup_questions, state->followup_questions[state->followup_index]);
+                widgets_draw_wrapped_input(state->arena, 3, width, label, state->followup_answer[state->followup_index], true);
+                break;
+            }
+
             widgets_draw_header(1, "A few more questions");
 
-            if (state->notes_step == TUI_NOTES_STEP_TEXT)
-            {
-                widgets_draw_text_input(3, "Anything else? >", state->notes_input);
-            }
-            else
-            {
-                tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "Anything else? > %s", state->notes_input);
-            }
+            size_t notes_lines = widgets_draw_wrapped_input(state->arena, 3, width, "Anything else? >", state->notes_input, state->notes_step == TUI_NOTES_STEP_TEXT);
+            int next_y = 3 + (int)notes_lines;
 
             if (state->notes_step >= TUI_NOTES_STEP_RECOMMEND)
             {
                 const char *answer = (state->notes_step == TUI_NOTES_STEP_RECOMMEND) ? "" : (state->recommend ? "y" : "n");
-                tb_printf(2, 4, TB_DEFAULT, TB_DEFAULT, "Recommend it? (y/n) > %s", answer);
+                tb_printf(2, next_y, TB_DEFAULT, TB_DEFAULT, "Recommend it? (y/n) > %s", answer);
             }
 
             if (state->notes_step == TUI_NOTES_STEP_LENGTH)
             {
-                tb_print(2, 5, TB_DEFAULT, TB_DEFAULT, "Length: (s)hort / (m)edium / (l)ong >");
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Length: (s)hort / (m)edium / (l)ong >");
             }
 
             if (state->notes_step == TUI_NOTES_STEP_VOCAB)
             {
-                tb_print(2, 5, TB_DEFAULT, TB_DEFAULT, "Words: (n)ormal / (s)imple (simpler, everyday words) >");
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Words: (n)ormal / (s)imple (simpler, everyday words) >");
             }
             break;
+        }
 
         case TUI_SCREEN_LOADING_REVIEW:
             widgets_draw_header(1, "Writing your review...");
@@ -179,6 +194,8 @@ typedef struct bg_result_t
     err_t err;
     game_info_t game;
     theme_set_t themes;
+    char **questions;
+    size_t n_questions;
     char *review_text;
 } bg_result_t;
 
@@ -219,6 +236,37 @@ static void *bg_load_game_thread(void *argp)
     return NULL;
 }
 
+static void *bg_generate_followup_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    int rc = pipeline_resolve_llm(ctx->cfg, &provider, &llm_cfg, &err);
+
+    char **questions = NULL;
+    size_t n_questions = 0;
+    if (rc == 0) rc = followup_generate(ctx->state->arena, provider, &llm_cfg, &ctx->state->game, &ctx->state->themes, &questions, &n_questions, &err);
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0)
+    {
+        result->questions = questions;
+        result->n_questions = n_questions;
+    }
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
+
 static void *bg_generate_review_thread(void *argp)
 {
     bg_ctx_t *ctx = (bg_ctx_t *)argp;
@@ -234,6 +282,9 @@ static void *bg_generate_review_thread(void *argp)
     char *review_text = NULL;
     if (rc == 0)
     {
+        char *followup_answer_ptrs[FOLLOWUP_MAX_QUESTIONS];
+        for (size_t i = 0; i < ctx->state->n_followup_questions; i++) followup_answer_ptrs[i] = ctx->state->followup_answer[i];
+
         review_request_t req;
         req.game = &ctx->state->game;
         req.themes = &ctx->state->themes;
@@ -242,6 +293,9 @@ static void *bg_generate_review_thread(void *argp)
         req.length = ctx->state->length;
         req.tone = ctx->state->tone;
         req.vocab = ctx->state->vocab;
+        req.followup_questions = ctx->state->followup_questions;
+        req.followup_answers = ctx->state->n_followup_questions > 0 ? followup_answer_ptrs : NULL;
+        req.n_followup = ctx->state->n_followup_questions;
 
         rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
     }
@@ -400,6 +454,13 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
         if (result.rc == 0) tui_apply_game_loaded(state, state->appid, result.game, result.themes);
         else tui_apply_game_load_failed(state, result.err.msg);
     }
+    else if (state->screen == TUI_SCREEN_LOADING_FOLLOWUP)
+    {
+        /* Best-effort and optional: a failure here just means zero
+         * questions, never a hard error shown to the user. */
+        if (result.rc == 0) tui_apply_followup_generated(state, result.questions, result.n_questions);
+        else tui_apply_followup_failed(state);
+    }
     else
     {
         if (result.rc == 0) tui_apply_review_generated(state, result.review_text);
@@ -425,7 +486,11 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         if (is_loading_screen(state.screen))
         {
             tui_screen_t loading_screen = state.screen;
-            run_loading_screen(&state, cfg, loading_screen == TUI_SCREEN_LOADING_GAME ? bg_load_game_thread : bg_generate_review_thread);
+            void *(*thread_fn)(void *) = bg_generate_review_thread;
+            if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_FOLLOWUP) thread_fn = bg_generate_followup_thread;
+
+            run_loading_screen(&state, cfg, thread_fn);
             continue;
         }
 

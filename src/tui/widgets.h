@@ -1,6 +1,7 @@
 #ifndef STEAMSCRIBE_TUI_WIDGETS_H
 #define STEAMSCRIBE_TUI_WIDGETS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "core/themes.h"
@@ -18,5 +19,13 @@ void widgets_draw_search_results(int y, const steam_search_results_t *results, s
 void widgets_draw_checklist(int y, const theme_t *items, size_t count, size_t cursor);
 void widgets_draw_text_input(int y, const char *label, const char *buffer);
 void widgets_draw_wrapped_text(arena_t *arena, int x, int y, int width, const char *text);
+
+/* Like widgets_draw_text_input, but word-wraps "label buffer" across as
+ * many lines as it needs instead of running off the edge of the terminal --
+ * for free-text input that can get long (e.g. "Anything else?"). Returns
+ * the number of lines drawn, so the caller can position whatever comes
+ * next. Only places the terminal cursor at the end of the text when
+ * `editing` is true. */
+size_t widgets_draw_wrapped_input(arena_t *arena, int y, int width, const char *label, const char *buffer, bool editing);
 
 #endif

@@ -54,6 +54,9 @@ static int test_full_prompt_golden(void)
     req.length = REVIEW_LEN_MEDIUM;
     req.tone = REVIEW_TONE_ENTHUSIASTIC;
     req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = NULL;
+    req.followup_answers = NULL;
+    req.n_followup = 0;
 
     char *system = NULL;
     char *user = NULL;
@@ -115,6 +118,9 @@ static int test_minimal_prompt_golden(void)
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = NULL;
+    req.followup_answers = NULL;
+    req.n_followup = 0;
 
     char *system = NULL;
     char *user = NULL;
@@ -172,12 +178,112 @@ static int test_simple_vocab_adds_instruction_line(void)
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_SIMPLE;
+    req.followup_questions = NULL;
+    req.followup_answers = NULL;
+    req.n_followup = 0;
 
     char *system = NULL;
     char *user = NULL;
     review_build_prompt(&arena, &req, &system, &user);
 
     TEST_ASSERT(strstr(system, "simple, everyday words") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_followup_answers_are_included_skipped_ones_are_not(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game;
+    game.appid = 1;
+    game.name = arena_strdup(&arena, "Puzzlegame");
+    game.short_desc = arena_strdup(&arena, "A puzzle game.");
+    game.genres = arena_strdup(&arena, "Puzzle");
+    game.developers = arena_strdup(&arena, "Someone");
+    game.release_date = arena_strdup(&arena, "1 Jan, 2026");
+
+    theme_set_t themes;
+    themes.liked = NULL;
+    themes.n_liked = 0;
+    themes.disliked = NULL;
+    themes.n_disliked = 0;
+
+    char *questions[2];
+    questions[0] = arena_strdup(&arena, "What moment stuck with you most?");
+    questions[1] = arena_strdup(&arena, "Would you play the sequel?");
+
+    char *answers[2];
+    answers[0] = arena_strdup(&arena, "The final boss fight.");
+    answers[1] = arena_strdup(&arena, ""); /* skipped */
+
+    review_request_t req;
+    req.game = &game;
+    req.themes = &themes;
+    req.notes = "";
+    req.recommend = true;
+    req.length = REVIEW_LEN_SHORT;
+    req.tone = REVIEW_TONE_CASUAL;
+    req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = questions;
+    req.followup_answers = answers;
+    req.n_followup = 2;
+
+    char *system = NULL;
+    char *user = NULL;
+    review_build_prompt(&arena, &req, &system, &user);
+
+    TEST_ASSERT(strstr(user, "More about my experience:") != NULL);
+    TEST_ASSERT(strstr(user, "What moment stuck with you most? The final boss fight.") != NULL);
+    TEST_ASSERT(strstr(user, "Would you play the sequel?") == NULL); /* skipped (blank) answer leaves the question out too */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_no_followup_answered_omits_the_section(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game;
+    game.appid = 1;
+    game.name = arena_strdup(&arena, "Puzzlegame");
+    game.short_desc = arena_strdup(&arena, "A puzzle game.");
+    game.genres = arena_strdup(&arena, "Puzzle");
+    game.developers = arena_strdup(&arena, "Someone");
+    game.release_date = arena_strdup(&arena, "1 Jan, 2026");
+
+    theme_set_t themes;
+    themes.liked = NULL;
+    themes.n_liked = 0;
+    themes.disliked = NULL;
+    themes.n_disliked = 0;
+
+    char *questions[1];
+    questions[0] = arena_strdup(&arena, "What moment stuck with you most?");
+    char *answers[1];
+    answers[0] = arena_strdup(&arena, "");
+
+    review_request_t req;
+    req.game = &game;
+    req.themes = &themes;
+    req.notes = "";
+    req.recommend = true;
+    req.length = REVIEW_LEN_SHORT;
+    req.tone = REVIEW_TONE_CASUAL;
+    req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = questions;
+    req.followup_answers = answers;
+    req.n_followup = 1;
+
+    char *system = NULL;
+    char *user = NULL;
+    review_build_prompt(&arena, &req, &system, &user);
+
+    TEST_ASSERT(strstr(user, "More about my experience:") == NULL);
 
     arena_free(&arena);
     return 0;
@@ -210,6 +316,9 @@ static int test_generate_uses_fake_provider(void)
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = NULL;
+    req.followup_answers = NULL;
+    req.n_followup = 0;
 
     llm_fake_set_response("I really liked it. Recommended!");
 
@@ -235,6 +344,8 @@ int main(void)
     if (test_full_prompt_golden()) return 1;
     if (test_minimal_prompt_golden()) return 1;
     if (test_simple_vocab_adds_instruction_line()) return 1;
+    if (test_followup_answers_are_included_skipped_ones_are_not()) return 1;
+    if (test_no_followup_answered_omits_the_section()) return 1;
     if (test_generate_uses_fake_provider()) return 1;
 
     printf("all tests passed\n");

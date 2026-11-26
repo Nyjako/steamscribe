@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "util/json_fence.h"
 #include "util/strbuf.h"
 
 /* Caps how many reviews go into a single side's prompt -- keeps prompts
@@ -86,36 +87,6 @@ void themes_build_side_prompt(arena_t *arena, const game_info_t *game, const rev
     strbuf_free(&sb);
 }
 
-/* Strips a leading/trailing ```[json] code fence if the LLM wrapped its
- * answer in one, leaving plain JSON text untouched. */
-static char *strip_code_fences(arena_t *arena, const char *text)
-{
-    const char *start = text;
-    while (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r') start++;
-
-    size_t len = strlen(start);
-    while (len > 0 && (start[len - 1] == ' ' || start[len - 1] == '\t' || start[len - 1] == '\n' || start[len - 1] == '\r')) len--;
-
-    if (len >= 3 && strncmp(start, "```", 3) == 0)
-    {
-        const char *nl = memchr(start, '\n', len);
-        if (nl)
-        {
-            size_t skip = (size_t)(nl - start) + 1;
-            start += skip;
-            len -= skip;
-        }
-
-        if (len >= 3 && strncmp(start + len - 3, "```", 3) == 0)
-        {
-            len -= 3;
-            while (len > 0 && (start[len - 1] == '\n' || start[len - 1] == '\r')) len--;
-        }
-    }
-
-    return arena_strndup(arena, start, len);
-}
-
 static theme_t *parse_theme_array(arena_t *arena, cJSON *array, size_t *out_count)
 {
     size_t count = cJSON_IsArray(array) ? (size_t)cJSON_GetArraySize(array) : 0;
@@ -138,7 +109,7 @@ static theme_t *parse_theme_array(arena_t *arena, cJSON *array, size_t *out_coun
 
 int themes_parse_side_response(arena_t *arena, const char *llm_text, bool is_liked_side, theme_t **out_items, size_t *out_count, err_t *err)
 {
-    char *stripped = strip_code_fences(arena, llm_text);
+    char *stripped = json_strip_code_fences(arena, llm_text);
 
     cJSON *root = cJSON_Parse(stripped);
     if (!root)
@@ -163,7 +134,7 @@ int themes_parse_side_response(arena_t *arena, const char *llm_text, bool is_lik
 
 int themes_parse_response(arena_t *arena, const char *llm_text, theme_set_t *out, err_t *err)
 {
-    char *stripped = strip_code_fences(arena, llm_text);
+    char *stripped = json_strip_code_fences(arena, llm_text);
 
     cJSON *root = cJSON_Parse(stripped);
     if (!root)

@@ -38,6 +38,14 @@ typedef struct review_request_t
     review_len_t length;
     review_tone_t tone;
     review_vocab_t vocab;
+
+    /* Optional, AI-generated follow-up questions and the player's answers
+     * (parallel arrays of n_followup entries). A blank/empty answer means
+     * that question was skipped and is left out of the prompt. May be NULL
+     * with n_followup == 0 if none were generated or asked. */
+    char **followup_questions;
+    char **followup_answers;
+    size_t n_followup;
 } review_request_t;
 
 /* Builds the review-generation system/user prompt for `req`, using only the
