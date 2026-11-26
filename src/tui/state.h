@@ -44,6 +44,8 @@ typedef enum
     TUI_NOTES_STEP_RATING,
     TUI_NOTES_STEP_LENGTH,
     TUI_NOTES_STEP_VOCAB,
+    TUI_NOTES_STEP_FORMAT,
+    TUI_NOTES_STEP_SPOILER,
 } tui_notes_step_t;
 
 typedef enum
@@ -121,6 +123,11 @@ typedef struct app_state_t
     review_len_t length;
     review_tone_t tone;
     review_vocab_t vocab;
+    bool bbcode; /* false = plain, true = bbcode (affects the spoiler block below) */
+
+    char spoiler_input[TUI_NOTES_INPUT_CAP];
+    size_t spoiler_input_len;
+    size_t spoiler_input_cursor;
 
     char *review_text;
 

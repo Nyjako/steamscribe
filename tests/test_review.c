@@ -58,6 +58,8 @@ static int test_full_prompt_golden(void)
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -123,6 +125,8 @@ static int test_rating_adds_system_rule_and_user_line(void)
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -130,6 +134,54 @@ static int test_rating_adds_system_rule_and_user_line(void)
 
     TEST_ASSERT(strstr(system, "Work \"(8/10)\" into that verdict line exactly as written") != NULL);
     TEST_ASSERT(strstr(user, "\nOverall recommendation: yes\nRating: 8/10\n") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_append_spoiler_plain(void)
+{
+    review_request_t req;
+    req.bbcode = false;
+    req.spoiler_notes = "The ending is actually a dream.";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_append_spoiler(&arena, &req, "I liked it overall.");
+    TEST_ASSERT(strcmp(result, "I liked it overall.\n\nSpoilers: The ending is actually a dream.") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_append_spoiler_bbcode(void)
+{
+    review_request_t req;
+    req.bbcode = true;
+    req.spoiler_notes = "The ending is actually a dream.";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_append_spoiler(&arena, &req, "I liked it overall.");
+    TEST_ASSERT(strcmp(result, "I liked it overall.\n\n[spoiler]The ending is actually a dream.[/spoiler]") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_append_spoiler_empty_is_a_no_op(void)
+{
+    review_request_t req;
+    req.bbcode = true;
+    req.spoiler_notes = "";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_append_spoiler(&arena, &req, "I liked it overall.");
+    TEST_ASSERT(strcmp(result, "I liked it overall.") == 0);
 
     arena_free(&arena);
     return 0;
@@ -169,6 +221,8 @@ static int test_minimal_prompt_golden(void)
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -230,6 +284,8 @@ static int test_simple_vocab_adds_instruction_line(void)
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -280,6 +336,8 @@ static int test_followup_answers_are_included_skipped_ones_are_not(void)
     req.followup_questions = questions;
     req.followup_answers = answers;
     req.n_followup = 2;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -329,6 +387,8 @@ static int test_no_followup_answered_omits_the_section(void)
     req.followup_questions = questions;
     req.followup_answers = answers;
     req.n_followup = 1;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -371,6 +431,8 @@ static int test_generate_uses_fake_provider(void)
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     llm_fake_set_response("I really liked it. Recommended!");
 
@@ -395,6 +457,9 @@ int main(void)
 {
     if (test_full_prompt_golden()) return 1;
     if (test_rating_adds_system_rule_and_user_line()) return 1;
+    if (test_append_spoiler_plain()) return 1;
+    if (test_append_spoiler_bbcode()) return 1;
+    if (test_append_spoiler_empty_is_a_no_op()) return 1;
     if (test_minimal_prompt_golden()) return 1;
     if (test_simple_vocab_adds_instruction_line()) return 1;
     if (test_followup_answers_are_included_skipped_ones_are_not()) return 1;

@@ -187,6 +187,17 @@ static void draw(app_state_t *state, char spinner_ch)
             {
                 tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Words: (n)ormal / (s)imple (simpler, everyday words) >");
             }
+
+            if (state->notes_step == TUI_NOTES_STEP_FORMAT)
+            {
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Format: (p)lain / (b)bcode >");
+            }
+
+            if (state->notes_step == TUI_NOTES_STEP_SPOILER)
+            {
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Spoiler details (optional) -- Enter skips once blank, Ctrl+S continues");
+                widgets_draw_text_area(next_y + 2, width, state->spoiler_input, state->spoiler_input_cursor);
+            }
             break;
         }
 
@@ -362,6 +373,8 @@ static void *bg_generate_review_thread(void *argp)
         req.followup_questions = ctx->state->followup_questions;
         req.followup_answers = ctx->state->n_followup_questions > 0 ? followup_answer_ptrs : NULL;
         req.n_followup = ctx->state->n_followup_questions;
+        req.bbcode = ctx->state->bbcode;
+        req.spoiler_notes = ctx->state->spoiler_input;
 
         rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
     }

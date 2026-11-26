@@ -382,6 +382,17 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     char vocab_choice = vocab_line[0] ? vocab_line[0] : cfg->review_default_vocab[0];
     review_vocab_t vocab = (vocab_choice == 's' || vocab_choice == 'S') ? REVIEW_VOCAB_SIMPLE : REVIEW_VOCAB_NORMAL;
 
+    printf("Format: (p)lain / (b)bcode > ");
+    fflush(stdout);
+    char format_line[16];
+    read_line(format_line, sizeof(format_line));
+    bool bbcode = (format_line[0] == 'b' || format_line[0] == 'B');
+
+    printf("Spoiler details, optional (blank skips) > ");
+    fflush(stdout);
+    char spoiler_notes[512];
+    read_line(spoiler_notes, sizeof(spoiler_notes));
+
     review_tone_t tone = REVIEW_TONE_CASUAL;
     if (strcmp(cfg->review_default_tone, "neutral") == 0) tone = REVIEW_TONE_NEUTRAL;
     else if (strcmp(cfg->review_default_tone, "enthusiastic") == 0) tone = REVIEW_TONE_ENTHUSIASTIC;
@@ -398,6 +409,8 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
     req.followup_questions = followup_questions;
     req.followup_answers = followup_answers;
     req.n_followup = n_followup;
+    req.bbcode = bbcode;
+    req.spoiler_notes = spoiler_notes;
 
     char *review_text = NULL;
     if (review_generate(arena, provider, &llm_cfg, &req, &review_text, &err) != 0)
