@@ -98,7 +98,23 @@ a few follow-up questions, and one to generate the review text.
 Two calls, not one: liked themes are extracted from only the positive reviews, disliked
 themes from only the negative ones, each capped to 60 reviews, then merged. This keeps
 each prompt small (good for small-context local models) and lets a schema-capable
-provider constrain each call to a simple, single-key shape:
+provider constrain each call to a simple, single-key shape.
+
+For `ollama`, a side's reviews are *also* trimmed by total length (not just count) to a
+budget computed from `num_ctx` -- a conservative chars-per-token estimate, less
+`THEMES_PROMPT_OVERHEAD_TOKENS` reserved for the system prompt, the schema, and the
+model's own reply. Without this, a game whose reviews happen to be unusually long (e.g.
+long BBCode-formatted "Pros/Cons" lists) could build a prompt that overflows the model's
+context outright -- Ollama rejects that with an HTTP 400 ("request exceeds the available
+context size") rather than just answering sloppily, which surfaced as "Could not load
+game" with no further explanation. Other providers don't set `num_ctx`, so this is a
+no-op for them -- their hosted context windows are large enough that it's never been an
+issue in practice.
+
+```json
+{ "liked":    [ { "id": "art",      "label": "Art style & lighting" } ] }
+{ "disliked": [ { "id": "raids",    "label": "Annoying enemy raids" } ] }
+```
 
 ```json
 { "liked":    [ { "id": "art",      "label": "Art style & lighting" } ] }
@@ -384,8 +400,9 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 | LLM returns invalid JSON                     | fence stripping, one retry, debug log                |
 | Generated text sounds like AI                | short default, "plain words" rules, easy edit/regen  |
 | Other players' opinions leak into the review | only checked labels and user notes are sent in step 2 |
-| Text input in C TUI is fiddly                | single-line input widget; multi-line goes to `$EDITOR` |
+| Text input in C TUI is fiddly                | word-wrapped input widget for free text; the generated review itself can be opened in `$EDITOR` |
 | Unicode in reviews/terminal                  | treat text as UTF-8 bytes; termbox2 handles display width |
+| A game's reviews overflow a local model's context | `num_ctx`-based character budget on top of the review-count cap (4.1) |
 
 ## 10. Go fallback
 

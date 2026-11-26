@@ -61,7 +61,7 @@ static int test_build_side_prompt_liked(void)
 
     char *system = NULL;
     char *user = NULL;
-    themes_build_side_prompt(&arena, &game, &reviews, true, &system, &user);
+    themes_build_side_prompt(&arena, &game, &reviews, true, 0, &system, &user);
 
     TEST_ASSERT(strstr(system, "LIKED") != NULL);
     TEST_ASSERT(strstr(system, "\"liked\"") != NULL);
@@ -91,11 +91,82 @@ static int test_build_side_prompt_disliked_empty(void)
 
     char *system = NULL;
     char *user = NULL;
-    themes_build_side_prompt(&arena, &game, &all_positive, false, &system, &user);
+    themes_build_side_prompt(&arena, &game, &all_positive, false, 0, &system, &user);
 
     TEST_ASSERT(strstr(system, "DISLIKED") != NULL);
     TEST_ASSERT(strstr(user, "Negative reviews:") != NULL);
     TEST_ASSERT(strstr(user, "(none)") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static review_set_t make_many_long_reviews(arena_t *arena, size_t count, size_t review_len)
+{
+    review_set_t reviews;
+    reviews.count = count;
+    reviews.items = (steam_review_t *)arena_alloc(arena, count * sizeof(steam_review_t));
+
+    char *text = (char *)arena_alloc(arena, review_len + 1);
+    memset(text, 'x', review_len);
+    text[review_len] = '\0';
+
+    for (size_t i = 0; i < count; i++)
+    {
+        reviews.items[i].text = text; /* same text each time; only its length matters here */
+        reviews.items[i].voted_up = true;
+        reviews.items[i].votes_up = 0;
+        reviews.items[i].playtime_min = 0;
+    }
+
+    reviews.score_desc = arena_strdup(arena, "");
+    reviews.total_positive = 0;
+    reviews.total_negative = 0;
+    return reviews;
+}
+
+static int test_build_side_prompt_trims_to_fit_num_ctx(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game = make_game(&arena);
+    review_set_t reviews = make_many_long_reviews(&arena, 20, 200);
+
+    char *system = NULL;
+    char *user = NULL;
+    /* num_ctx=2000 -> available_tokens floors at 500 -> budget = 1500 chars,
+     * well under the 20 * ~203 chars (with "- "/"\n") this side would
+     * otherwise include in full. */
+    themes_build_side_prompt(&arena, &game, &reviews, true, 2000, &system, &user);
+
+    size_t included = 0;
+    for (const char *p = user; (p = strstr(p, "- ")) != NULL; p += 2) included++;
+
+    TEST_ASSERT(included > 0);
+    TEST_ASSERT(included < 20); /* the byte budget cut it short, not just the 60-review cap */
+    TEST_ASSERT(strlen(user) < 3000); /* nowhere near what untrimmed would be (~4000+ chars) */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_build_side_prompt_num_ctx_zero_means_no_limit(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game = make_game(&arena);
+    review_set_t reviews = make_many_long_reviews(&arena, 20, 200);
+
+    char *system = NULL;
+    char *user = NULL;
+    themes_build_side_prompt(&arena, &game, &reviews, true, 0, &system, &user);
+
+    size_t included = 0;
+    for (const char *p = user; (p = strstr(p, "- ")) != NULL; p += 2) included++;
+
+    TEST_ASSERT(included == 20); /* no provider num_ctx -> only the count cap applies */
 
     arena_free(&arena);
     return 0;
@@ -385,6 +456,8 @@ int main(void)
 {
     if (test_build_side_prompt_liked()) return 1;
     if (test_build_side_prompt_disliked_empty()) return 1;
+    if (test_build_side_prompt_trims_to_fit_num_ctx()) return 1;
+    if (test_build_side_prompt_num_ctx_zero_means_no_limit()) return 1;
     if (test_parse_side_response_plain()) return 1;
     if (test_parse_side_response_fenced()) return 1;
     if (test_parse_side_response_wrong_key()) return 1;

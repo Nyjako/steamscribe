@@ -40,7 +40,8 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 - [x] `fake` provider for tests
 - [x] Theme extraction prompt plus robust JSON parsing (fence stripping, one retry)
 - [x] `steamscribe themes <appid>` prints themes JSON and caches it
-- [x] `--verbose` debug log with keys redacted (scoped down from "HTTP and LLM traffic" to lifecycle events -- cache hits/misses, URLs fetched, provider/model used; full raw request/response dumping is left for later if it turns out to be needed)
+- [x] `--verbose` debug log with keys redacted (scoped down from "HTTP and LLM traffic" to lifecycle events -- cache hits/misses, URLs fetched, provider/model used; the `ollama` provider also now logs the raw error body on a failed call, which is what it took to diagnose the context-overflow bug below)
+- [x] `num_ctx`-based character budget on top of the review-count cap, so a game with unusually long/verbose reviews can't build a theme-extraction prompt that overflows a local model's context (bug: `Resident Evil Requiem` reliably failed with "Could not load game: HTTP 400 ... exceeds the available context size")
 
 **Done when:** themes for 3–4 different games (e.g. Valheim, a puzzle game, a shooter) look sensible, and it works with a local Ollama model. Verified against a real local LM Studio instance (`qwen/qwen3.5-9b`, loaded and served via the `lms` CLI) with the `openai` provider: both theme-extraction passes and review generation produced sensible output end to end. Not yet verified against a real Ollama server specifically (none available to test against) or Anthropic/OpenAI's hosted APIs.
 
