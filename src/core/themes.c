@@ -13,6 +13,33 @@
  * side are already the most representative ones. */
 #define THEMES_MAX_REVIEWS_PER_SIDE 60
 
+/* A conservative (safe-side) chars-per-token estimate for review text --
+ * actual token density varies by content (BBCode/punctuation-heavy text
+ * can run denser than plain prose), so this errs low rather than risk
+ * still overflowing num_ctx. */
+#define THEMES_CHARS_PER_TOKEN_ESTIMATE 3
+
+/* Reserved for the system prompt, the JSON schema (when used), and the
+ * model's own reply -- all of which share the same context window as the
+ * reviews. */
+#define THEMES_PROMPT_OVERHEAD_TOKENS 1500
+
+/* How many characters of review text fit in num_ctx tokens' worth of
+ * context, after THEMES_PROMPT_OVERHEAD_TOKENS. Returns 0 ("no limit",
+ * keep the existing count-only cap) when num_ctx isn't set -- true for
+ * every provider except ollama, where a game with unusually long reviews
+ * can otherwise build a prompt that overflows the model's context and
+ * gets rejected outright rather than just answered sloppily. */
+static size_t themes_review_char_budget(int num_ctx)
+{
+    if (num_ctx <= 0) return 0;
+
+    int available_tokens = num_ctx - THEMES_PROMPT_OVERHEAD_TOKENS;
+    if (available_tokens < 500) available_tokens = 500;
+
+    return (size_t)available_tokens * THEMES_CHARS_PER_TOKEN_ESTIMATE;
+}
+
 static const char *theme_side_key(bool is_liked_side)
 {
     return is_liked_side ? "liked" : "disliked";
@@ -58,7 +85,7 @@ static const char *theme_side_json_schema(bool is_liked_side)
            "\"required\":[\"id\",\"label\"]}}},\"required\":[\"disliked\"]}";
 }
 
-void themes_build_side_prompt(arena_t *arena, const game_info_t *game, const review_set_t *reviews, bool is_liked_side, char **out_system, char **out_user)
+void themes_build_side_prompt(arena_t *arena, const game_info_t *game, const review_set_t *reviews, bool is_liked_side, int num_ctx, char **out_system, char **out_user)
 {
     strbuf_t sb;
     strbuf_init(&sb);
@@ -69,10 +96,16 @@ void themes_build_side_prompt(arena_t *arena, const game_info_t *game, const rev
 
     strbuf_append_fmt(&sb, "%s reviews:\n", is_liked_side ? "Positive" : "Negative");
 
+    size_t char_budget = themes_review_char_budget(num_ctx);
+
     size_t shown = 0;
     for (size_t i = 0; i < reviews->count && shown < THEMES_MAX_REVIEWS_PER_SIDE; i++)
     {
         if (reviews->items[i].voted_up != is_liked_side) continue;
+
+        size_t review_len = strlen(reviews->items[i].text);
+        if (char_budget > 0 && shown > 0 && sb.len + review_len > char_budget) break;
+
         strbuf_append_cstr(&sb, "- ");
         strbuf_append_cstr(&sb, reviews->items[i].text);
         strbuf_append_cstr(&sb, "\n");
@@ -164,7 +197,7 @@ static int themes_extract_side(arena_t *arena, const llm_provider_t *provider, c
 {
     char *system = NULL;
     char *user = NULL;
-    themes_build_side_prompt(arena, game, reviews, is_liked_side, &system, &user);
+    themes_build_side_prompt(arena, game, reviews, is_liked_side, cfg->num_ctx, &system, &user);
 
     const char *schema = theme_side_json_schema(is_liked_side);
 
