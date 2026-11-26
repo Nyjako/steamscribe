@@ -176,7 +176,7 @@ into the review prompt (see 4.3), as a `- <question> <answer>` line each, under 
 about my experience:" heading that's left out entirely if nothing was answered.
 
 ### 4.3 Review generation
-Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, an optional playtime (see 3.5), length, tone, vocabulary.
+Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, an optional 1-10 rating, an optional playtime (see 3.5), length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
 - Use only the provided points below. Never invent or add any extra like, dislike,
@@ -190,9 +190,30 @@ System prompt rules:
   fast.
 - Short = 2–4 sentences. Medium = 1–2 paragraphs. Long = 3–4 paragraphs.
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
+- Rating: a new optional step right after Recommend, in both the TUI and `--plain` --
+  blank/Enter skips it (same "Enter skips" convention used elsewhere), otherwise 1-10,
+  clamped rather than rejected if someone types e.g. "99". When given, one extra system
+  rule tells the model to work "(N/10)" into the closing verdict line exactly as given --
+  phrased as strongly as the "never invent a number" rule above, for the same reason: it's
+  still a number in the prompt, and the model shouldn't feel free to round it or restate
+  it differently.
 - Vocabulary: "normal" adds no extra line; "simple" adds one telling the model to use
   plain, everyday words and avoid fancy or technical vocabulary. Picked per review, right
   after length, in both the TUI and `--plain`; defaults from `[review] default_vocab`.
+
+**Format and spoilers.** Right after Vocab, a "Format: (p)lain / (b)bcode" step, then an
+always-asked, optional "Spoiler details" step -- a separate text field, not folded into
+the main notes. Spoiler text is deliberately never sent to the model at all: it's
+appended to the generated text as-is, after generation (`review_append_spoiler()`, pure
+and unit-tested without a network dependency), wrapped in `[spoiler][/spoiler]` when the
+format is bbcode or under a plain "Spoilers:" label otherwise. Two alternatives were
+considered and rejected: letting the model guess what counts as a spoiler (unpredictable,
+both over- and under-marks things), and inline markers the model is told to preserve
+verbatim (fragile on a small local model, which could still paraphrase or drop the
+marker). Appending after the fact sidesteps both failure modes entirely, at the cost of
+spoiler content always landing at the end rather than inline with the surrounding prose.
+The format choice only affects this one block -- the main review body's wording is the
+same either way; BBCode markup elsewhere (bold, lists, ...) was explicitly out of scope.
 
 From the Result screen, the TUI also offers to go back through Liked/Disliked/Notes/
 Options with everything from last time still in place (`o`) -- for fixing a wrong
@@ -321,6 +342,8 @@ yet -- so this works without making the arena allocator itself thread-safe.
 
 ### 5.4 Errors
 Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`. The TUI shows `msg` in a status bar. `--verbose` writes HTTP and LLM traffic to `~/.cache/steamscribe/debug.log`, with API keys redacted.
+
+`net/http.c` is the one place every Steam and LLM request goes through, so its error wording is where "offline", "rate-limited" and "bad/missing key" become friendly for every caller at once, instead of each one repeating the same status-code checks: a curl-level failure that specifically looks like no connectivity (couldn't resolve host, couldn't connect, timed out, TLS handshake failed) says so plainly rather than quoting curl's own phrasing; HTTP 401/403 says to check the API key; 429 says to wait and retry (on top of the existing automatic retry-with-backoff for 429/5xx); 5xx says the server's having trouble. A missing Anthropic/OpenAI key is caught even earlier, in `pipeline_resolve_llm()`, before any request is sent -- except openai against a local `base_url` (LM Studio etc.), which never needed a key to begin with.
 
 Whatever's currently in the status bar is also flushed to stderr once the terminal tears
 down -- on a normal quit, on Ctrl+C mid-loading screen, and on a fatal signal (`SIGINT`/
@@ -457,6 +480,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 - **Unit:** `text.c`, `strbuf`, theme JSON parsing, prompt building (golden strings). Use CTest with a tiny assert macro, no framework needed.
 - **Fixtures:** saved Steam JSON responses in `tests/fixtures/` so tests run offline.
 - **Fake LLM provider:** `provider = fake` returns canned JSON or text, so you can test the full pipeline without an API key.
+- **`test_pipeline`:** `pipeline_resolve_llm()`'s provider/API-key resolution -- a missing key fails fast for anthropic and for openai against the real API, but not for openai against a local `base_url`, since that's the documented no-key case.
 - **Sanitizers:** `-DSANITIZE=ON` builds with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; CI runs a separate `sanitize` job with it (pulled forward from M5).
 
 ---

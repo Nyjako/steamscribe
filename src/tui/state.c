@@ -387,19 +387,42 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
             if (ch == 'y' || ch == 'Y')
             {
                 state->recommend = true;
-                state->notes_step = TUI_NOTES_STEP_LENGTH;
+                state->notes_step = TUI_NOTES_STEP_RATING;
             }
             else if (ch == 'n' || ch == 'N')
             {
                 state->recommend = false;
+                state->notes_step = TUI_NOTES_STEP_RATING;
+            }
+            return TUI_ACTION_NONE;
+
+        case TUI_NOTES_STEP_RATING:
+            if (key == TUI_KEY_ESC)
+            {
+                state->notes_step = TUI_NOTES_STEP_RECOMMEND;
+                return TUI_ACTION_NONE;
+            }
+            if (key == TUI_KEY_ENTER)
+            {
+                /* Optional -- a blank field just means no rating given,
+                 * same "Enter skips" convention as the notes text field. */
+                int rating = state->rating_input_len > 0 ? atoi(state->rating_input) : 0;
+                if (rating < 0) rating = 0;
+                if (rating > 10) rating = 10;
+                state->rating = rating;
                 state->notes_step = TUI_NOTES_STEP_LENGTH;
+                return TUI_ACTION_NONE;
+            }
+            {
+                text_field_t f = {state->rating_input, sizeof(state->rating_input), &state->rating_input_len, &state->rating_input_cursor};
+                handle_text_field_key(&f, ch, key, true);
             }
             return TUI_ACTION_NONE;
 
         case TUI_NOTES_STEP_LENGTH:
             if (key == TUI_KEY_ESC)
             {
-                state->notes_step = TUI_NOTES_STEP_RECOMMEND;
+                state->notes_step = TUI_NOTES_STEP_RATING;
                 return TUI_ACTION_NONE;
             }
             if (ch == 's' || ch == 'S') state->length = REVIEW_LEN_SHORT;
@@ -420,8 +443,53 @@ static tui_action_t handle_notes_key(app_state_t *state, uint32_t ch, uint16_t k
             else if (ch == 's' || ch == 'S') state->vocab = REVIEW_VOCAB_SIMPLE;
             else return TUI_ACTION_NONE;
 
-            state->screen = TUI_SCREEN_LOADING_REVIEW;
-            return TUI_ACTION_GENERATE_REVIEW;
+            state->notes_step = TUI_NOTES_STEP_FORMAT;
+            return TUI_ACTION_NONE;
+
+        case TUI_NOTES_STEP_FORMAT:
+            if (key == TUI_KEY_ESC)
+            {
+                state->notes_step = TUI_NOTES_STEP_VOCAB;
+                return TUI_ACTION_NONE;
+            }
+            if (ch == 'p' || ch == 'P') state->bbcode = false;
+            else if (ch == 'b' || ch == 'B') state->bbcode = true;
+            else return TUI_ACTION_NONE;
+
+            state->notes_step = TUI_NOTES_STEP_SPOILER;
+            return TUI_ACTION_NONE;
+
+        case TUI_NOTES_STEP_SPOILER:
+            if (key == TUI_KEY_ESC)
+            {
+                state->notes_step = TUI_NOTES_STEP_FORMAT;
+                return TUI_ACTION_NONE;
+            }
+            if (key == TUI_KEY_CTRL_S)
+            {
+                state->screen = TUI_SCREEN_LOADING_REVIEW;
+                return TUI_ACTION_GENERATE_REVIEW;
+            }
+            if (key == TUI_KEY_ENTER)
+            {
+                /* Same "Enter skips an empty field, otherwise inserts a
+                 * newline" convention as the main notes field. */
+                if (state->spoiler_input_len == 0)
+                {
+                    state->screen = TUI_SCREEN_LOADING_REVIEW;
+                    return TUI_ACTION_GENERATE_REVIEW;
+                }
+
+                text_field_t f = {state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor};
+                text_field_insert_char(&f, '\n');
+                return TUI_ACTION_NONE;
+            }
+
+            {
+                text_field_t f = {state->spoiler_input, sizeof(state->spoiler_input), &state->spoiler_input_len, &state->spoiler_input_cursor};
+                handle_text_field_key(&f, ch, key, false);
+            }
+            return TUI_ACTION_NONE;
 
         default:
             return TUI_ACTION_NONE;
@@ -624,6 +692,11 @@ static tui_action_t handle_result_key(app_state_t *state, uint32_t ch)
     if (ch == 'c')
     {
         return TUI_ACTION_COPY_REVIEW;
+    }
+
+    if (ch == 's')
+    {
+        return TUI_ACTION_SAVE_REVIEW;
     }
 
     if (ch == 'o')

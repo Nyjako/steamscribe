@@ -6,9 +6,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <termbox2.h>
+
+#include <goblin/appdirs.h>
 
 #include "core/followup.h"
 #include "core/pipeline.h"
@@ -168,6 +171,13 @@ static void draw(app_state_t *state, char spinner_ch)
                 tb_printf(2, next_y, TB_DEFAULT, TB_DEFAULT, "Recommend it? (y/n) > %s", answer);
             }
 
+            if (state->notes_step == TUI_NOTES_STEP_RATING)
+            {
+                const char *prefix = "Rating 1-10, optional (Enter skips) > ";
+                tb_printf(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "%s%s", prefix, state->rating_input);
+                tb_set_cursor(2 + (int)strlen(prefix) + (int)state->rating_input_cursor, next_y + 1);
+            }
+
             if (state->notes_step == TUI_NOTES_STEP_LENGTH)
             {
                 tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Length: (s)hort / (m)edium / (l)ong >");
@@ -176,6 +186,17 @@ static void draw(app_state_t *state, char spinner_ch)
             if (state->notes_step == TUI_NOTES_STEP_VOCAB)
             {
                 tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Words: (n)ormal / (s)imple (simpler, everyday words) >");
+            }
+
+            if (state->notes_step == TUI_NOTES_STEP_FORMAT)
+            {
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Format: (p)lain / (b)bcode >");
+            }
+
+            if (state->notes_step == TUI_NOTES_STEP_SPOILER)
+            {
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Spoiler details (optional) -- Enter skips once blank, Ctrl+S continues");
+                widgets_draw_text_area(next_y + 2, width, state->spoiler_input, state->spoiler_input_cursor);
             }
             break;
         }
@@ -186,7 +207,7 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_RESULT:
-            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (c) copy, (o) change your answers, (q) quit");
+            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (c) copy, (s) save, (o) change your answers, (q) quit");
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
             widgets_draw_status_bar(state->arena, state->status);
             break;
@@ -345,12 +366,15 @@ static void *bg_generate_review_thread(void *argp)
         req.themes = &ctx->state->themes;
         req.notes = ctx->state->notes_input;
         req.recommend = ctx->state->recommend;
+        req.rating = ctx->state->rating;
         req.length = ctx->state->length;
         req.tone = ctx->state->tone;
         req.vocab = ctx->state->vocab;
         req.followup_questions = ctx->state->followup_questions;
         req.followup_answers = ctx->state->n_followup_questions > 0 ? followup_answer_ptrs : NULL;
         req.n_followup = ctx->state->n_followup_questions;
+        req.bbcode = ctx->state->bbcode;
+        req.spoiler_notes = ctx->state->spoiler_input;
 
         steam_playtime_t playtime;
         pipeline_fetch_playtime(ctx->cfg, ctx->state->appid, &playtime);
@@ -450,6 +474,72 @@ static void do_copy_review(app_state_t *state)
 
     if (copied) snprintf(state->status, sizeof(state->status), "Copied to clipboard");
     else snprintf(state->status, sizeof(state->status), "Sent to clipboard via your terminal (OSC 52) -- no local clipboard tool found to confirm it landed");
+}
+
+/* Writes state->review_text to ~/.local/share/steamscribe/reviews/ (or
+ * wherever XDG_DATA_HOME points), named "<appid>-<date>.txt" per
+ * DESIGN.md 7 -- the appid and timestamp are enough on their own to make
+ * a unique, sortable filename without needing to sanitize the game name. */
+static void do_save_review(app_state_t *state)
+{
+    if (!state->review_text || !state->review_text[0])
+    {
+        snprintf(state->status, sizeof(state->status), "Nothing to save yet");
+        return;
+    }
+
+    char *data_dir = goblin_appdir_data_dir("steamscribe");
+    if (!data_dir)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: no home directory found");
+        return;
+    }
+
+    char *reviews_dir = goblin_appdir_join(data_dir, "reviews");
+    free(data_dir);
+    if (!reviews_dir)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: out of memory");
+        return;
+    }
+
+    if (goblin_appdir_mkdir_p(reviews_dir) != 0)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: could not create %s", reviews_dir);
+        free(reviews_dir);
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+    char stamp[32];
+    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &tm_now);
+
+    char filename[64];
+    snprintf(filename, sizeof(filename), "%u-%s.txt", state->appid, stamp);
+
+    char *path = goblin_appdir_join(reviews_dir, filename);
+    free(reviews_dir);
+    if (!path)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: out of memory");
+        return;
+    }
+
+    FILE *fp = fopen(path, "w");
+    if (!fp)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: could not create %s", path);
+        free(path);
+        return;
+    }
+
+    fputs(state->review_text, fp);
+    fclose(fp);
+
+    snprintf(state->status, sizeof(state->status), "Saved to %s", path);
+    free(path);
 }
 
 /* Opens state->review_text in $EDITOR (falling back to "vi"), replacing it
@@ -634,6 +724,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         else if (action == TUI_ACTION_SAVE_SETTINGS) do_save_settings(&state);
         else if (action == TUI_ACTION_EDIT_REVIEW) do_edit_review(&state);
         else if (action == TUI_ACTION_COPY_REVIEW) do_copy_review(&state);
+        else if (action == TUI_ACTION_SAVE_REVIEW) do_save_review(&state);
     }
 
     tb_shutdown();

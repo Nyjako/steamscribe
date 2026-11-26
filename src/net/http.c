@@ -76,7 +76,15 @@ static int perform_with_retry(CURL *curl, const http_cfg_t *cfg, const char *url
 
     if (res != CURLE_OK)
     {
-        err_set(err, (int)res, "request to %s failed: %s", url, curl_easy_strerror(res));
+        /* These specific codes mean the request never reached the other
+         * end at all -- worth calling out as "you're probably offline"
+         * rather than a generic curl error, since that's the overwhelmingly
+         * common cause. Anything else (e.g. a cert error, a malformed URL)
+         * still gets curl's own message, which is already specific enough. */
+        bool looks_offline = res == CURLE_COULDNT_RESOLVE_HOST || res == CURLE_COULDNT_RESOLVE_PROXY || res == CURLE_COULDNT_CONNECT ||
+                              res == CURLE_OPERATION_TIMEDOUT || res == CURLE_SSL_CONNECT_ERROR;
+        if (looks_offline) err_set(err, (int)res, "could not reach %s -- check your internet connection (%s)", url, curl_easy_strerror(res));
+        else err_set(err, (int)res, "request to %s failed: %s", url, curl_easy_strerror(res));
         return -1;
     }
 
@@ -85,6 +93,24 @@ static int perform_with_retry(CURL *curl, const http_cfg_t *cfg, const char *url
         char *redirect_url = NULL;
         curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &redirect_url);
         err_set(err, (int)status, "HTTP %ld, redirected to %s -- the request was likely blocked rather than reaching the API", status, redirect_url ? redirect_url : "(unknown)");
+        return -1;
+    }
+
+    if (status == 401 || status == 403)
+    {
+        err_set(err, (int)status, "%s rejected the request (HTTP %ld) -- check that your API key is set and correct", url, status);
+        return -1;
+    }
+
+    if (status == 429)
+    {
+        err_set(err, (int)status, "rate-limited by %s (HTTP 429) -- wait a bit and try again", url);
+        return -1;
+    }
+
+    if (status >= 500 && status < 600)
+    {
+        err_set(err, (int)status, "%s is having trouble right now (HTTP %ld) -- try again shortly", url, status);
         return -1;
     }
 

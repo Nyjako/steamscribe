@@ -41,8 +41,11 @@ typedef enum
     TUI_NOTES_STEP_FOLLOWUP,
     TUI_NOTES_STEP_TEXT,
     TUI_NOTES_STEP_RECOMMEND,
+    TUI_NOTES_STEP_RATING,
     TUI_NOTES_STEP_LENGTH,
     TUI_NOTES_STEP_VOCAB,
+    TUI_NOTES_STEP_FORMAT,
+    TUI_NOTES_STEP_SPOILER,
 } tui_notes_step_t;
 
 typedef enum
@@ -66,6 +69,7 @@ typedef enum
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
     TUI_ACTION_COPY_REVIEW,     /* copy state->review_text to the clipboard */
+    TUI_ACTION_SAVE_REVIEW,     /* write state->review_text to ~/.local/share/steamscribe/reviews/ */
 } tui_action_t;
 
 typedef struct app_state_t
@@ -112,9 +116,18 @@ typedef struct app_state_t
     size_t notes_input_cursor;
     tui_notes_step_t notes_step;
     bool recommend;
+    char rating_input[3]; /* "0".."10", blank means no rating given */
+    size_t rating_input_len;
+    size_t rating_input_cursor;
+    int rating; /* 0 = none, else 1-10; parsed from rating_input on continue */
     review_len_t length;
     review_tone_t tone;
     review_vocab_t vocab;
+    bool bbcode; /* false = plain, true = bbcode (affects the spoiler block below) */
+
+    char spoiler_input[TUI_NOTES_INPUT_CAP];
+    size_t spoiler_input_len;
+    size_t spoiler_input_cursor;
 
     char *review_text;
 
