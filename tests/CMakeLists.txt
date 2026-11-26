@@ -42,7 +42,8 @@ add_executable(test_themes
     ${CMAKE_SOURCE_DIR}/src/llm/fake.c
     ${CMAKE_SOURCE_DIR}/src/util/arena.c
     ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
-    ${CMAKE_SOURCE_DIR}/src/util/error.c)
+    ${CMAKE_SOURCE_DIR}/src/util/error.c
+    ${CMAKE_SOURCE_DIR}/src/util/json_fence.c)
 target_include_directories(test_themes PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${cjson_SOURCE_DIR})
 target_link_libraries(test_themes PRIVATE cjson)
 target_compile_options(test_themes PRIVATE -Wall -Wextra -Wpedantic)
@@ -61,6 +62,20 @@ target_compile_options(test_review PRIVATE -Wall -Wextra -Wpedantic)
 
 add_test(NAME test_review COMMAND test_review)
 
+add_executable(test_followup
+    test_followup.c
+    ${CMAKE_SOURCE_DIR}/src/core/followup.c
+    ${CMAKE_SOURCE_DIR}/src/llm/fake.c
+    ${CMAKE_SOURCE_DIR}/src/util/arena.c
+    ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
+    ${CMAKE_SOURCE_DIR}/src/util/error.c
+    ${CMAKE_SOURCE_DIR}/src/util/json_fence.c)
+target_include_directories(test_followup PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${cjson_SOURCE_DIR})
+target_link_libraries(test_followup PRIVATE cjson)
+target_compile_options(test_followup PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME test_followup COMMAND test_followup)
+
 add_executable(test_text
     test_text.c
     ${CMAKE_SOURCE_DIR}/src/util/text.c
@@ -78,7 +93,8 @@ add_executable(test_tui_state
     ${CMAKE_SOURCE_DIR}/src/core/themes.c
     ${CMAKE_SOURCE_DIR}/src/util/arena.c
     ${CMAKE_SOURCE_DIR}/src/util/strbuf.c
-    ${CMAKE_SOURCE_DIR}/src/util/error.c)
+    ${CMAKE_SOURCE_DIR}/src/util/error.c
+    ${CMAKE_SOURCE_DIR}/src/util/json_fence.c)
 target_include_directories(test_tui_state PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR} ${cjson_SOURCE_DIR})
 target_link_libraries(test_tui_state PRIVATE cjson)
 target_compile_options(test_tui_state PRIVATE -Wall -Wextra -Wpedantic)
