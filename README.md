@@ -44,9 +44,13 @@ $ steamscribe valheim
 
 Recorded end-to-end against the real Steam API and a local Ollama model: searching for a game, checking off what you liked/disliked, a couple of AI-generated follow-up questions, and the resulting review.
 
+![steamscribe demo](docs/demo/demo.gif)
+
+That's a GIF rendering of the real recording -- for the exact byte-for-byte original (with real terminal timing), watch it on asciinema instead:
+
 [![asciicast](https://asciinema.org/a/szWhZOo372xvVdWo.svg)](https://asciinema.org/a/szWhZOo372xvVdWo)
 
-Or play the same recording locally from this repo, no network needed:
+or play it locally from this repo, no network needed:
 
 ```bash
 asciinema play docs/demo/demo.cast
