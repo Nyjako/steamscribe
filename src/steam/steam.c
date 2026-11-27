@@ -434,3 +434,121 @@ int steam_reviews_sample(arena_t *arena, uint32_t appid, const char *language, s
     out->total_negative = summary.total_negative;
     return 0;
 }
+
+int steam_parse_owned_games(const char *json_text, steam_playtime_t *out, err_t *err)
+{
+    out->found = false;
+    out->playtime_minutes = 0;
+
+    cJSON *root = cJSON_Parse(json_text);
+    if (!root)
+    {
+        err_set(err, -1, "invalid owned-games response JSON (got: %.80s)", json_text);
+        return -1;
+    }
+
+    cJSON *response = cJSON_GetObjectItemCaseSensitive(root, "response");
+    cJSON *games = response ? cJSON_GetObjectItemCaseSensitive(response, "games") : NULL;
+
+    if (cJSON_IsArray(games) && cJSON_GetArraySize(games) > 0)
+    {
+        cJSON *game = cJSON_GetArrayItem(games, 0);
+        cJSON *playtime = game ? cJSON_GetObjectItemCaseSensitive(game, "playtime_forever") : NULL;
+
+        if (cJSON_IsNumber(playtime))
+        {
+            out->found = true;
+            out->playtime_minutes = (int)playtime->valuedouble;
+        }
+    }
+
+    cJSON_Delete(root);
+    return 0;
+}
+
+int steam_fetch_playtime(const char *api_key, const char *steam_id, uint32_t appid, steam_playtime_t *out, err_t *err)
+{
+    char url[512];
+    snprintf(url, sizeof(url),
+             "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
+             "?key=%s&steamid=%s&appids_filter[0]=%u&include_appinfo=false&include_played_free_games=true&format=json",
+             api_key, steam_id, appid);
+
+    http_cfg_t cfg = http_cfg_default();
+    strbuf_t body;
+    strbuf_init(&body);
+
+    int rc = http_get(&cfg, url, &body, err);
+    if (rc == 0) rc = steam_parse_owned_games(strbuf_cstr(&body), out, err);
+
+    strbuf_free(&body);
+    return rc;
+}
+
+int steam_parse_owned_games_list(arena_t *arena, const char *json_text, steam_library_t *out, err_t *err)
+{
+    out->items = NULL;
+    out->count = 0;
+
+    cJSON *root = cJSON_Parse(json_text);
+    if (!root)
+    {
+        err_set(err, -1, "invalid owned-games response JSON (got: %.80s)", json_text);
+        return -1;
+    }
+
+    cJSON *response = cJSON_GetObjectItemCaseSensitive(root, "response");
+    cJSON *games = response ? cJSON_GetObjectItemCaseSensitive(response, "games") : NULL;
+
+    /* An empty/private profile responds with `{"response":{}}` -- no
+     * "games" array at all -- which is a valid, empty library, not an
+     * error (the caller tells those apart by out->count == 0). */
+    size_t count = cJSON_IsArray(games) ? (size_t)cJSON_GetArraySize(games) : 0;
+    steam_owned_game_t *items = count ? (steam_owned_game_t *)arena_alloc(arena, count * sizeof(steam_owned_game_t)) : NULL;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        cJSON *game = cJSON_GetArrayItem(games, (int)i);
+        cJSON *appid = cJSON_GetObjectItemCaseSensitive(game, "appid");
+        cJSON *name = cJSON_GetObjectItemCaseSensitive(game, "name");
+        cJSON *playtime = cJSON_GetObjectItemCaseSensitive(game, "playtime_forever");
+
+        items[i].appid = cJSON_IsNumber(appid) ? (uint32_t)appid->valuedouble : 0;
+        items[i].name = cJSON_IsString(name) ? arena_strdup(arena, name->valuestring) : arena_strdup(arena, "");
+        items[i].playtime_minutes = cJSON_IsNumber(playtime) ? (int)playtime->valuedouble : 0;
+    }
+
+    out->items = items;
+    out->count = count;
+
+    cJSON_Delete(root);
+    return 0;
+}
+
+static int cmp_owned_game_by_playtime_desc(const void *a, const void *b)
+{
+    const steam_owned_game_t *ga = (const steam_owned_game_t *)a;
+    const steam_owned_game_t *gb = (const steam_owned_game_t *)b;
+    return gb->playtime_minutes - ga->playtime_minutes;
+}
+
+int steam_fetch_library(arena_t *arena, const char *api_key, const char *steam_id, steam_library_t *out, err_t *err)
+{
+    char url[512];
+    snprintf(url, sizeof(url),
+             "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
+             "?key=%s&steamid=%s&include_appinfo=true&include_played_free_games=true&format=json",
+             api_key, steam_id);
+
+    http_cfg_t cfg = http_cfg_default();
+    strbuf_t body;
+    strbuf_init(&body);
+
+    int rc = http_get(&cfg, url, &body, err);
+    if (rc == 0) rc = steam_parse_owned_games_list(arena, strbuf_cstr(&body), out, err);
+
+    strbuf_free(&body);
+    if (rc == 0 && out->count > 0) qsort(out->items, out->count, sizeof(out->items[0]), cmp_owned_game_by_playtime_desc);
+
+    return rc;
+}

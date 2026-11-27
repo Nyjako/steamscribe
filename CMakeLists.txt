@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 # requiring every contributor to pass the flag by hand.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-project(steamscribe VERSION 0.1.0 LANGUAGES C)
+project(steamscribe VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -25,7 +25,8 @@ CPMAddPackage(
   NAME cjson
   GITHUB_REPOSITORY DaveGamble/cJSON
   GIT_TAG v1.7.19
-  OPTIONS "ENABLE_CJSON_TEST OFF" "ENABLE_CJSON_UTILS OFF" "BUILD_SHARED_LIBS OFF")
+  OPTIONS "ENABLE_CJSON_TEST OFF" "ENABLE_CJSON_UTILS OFF" "BUILD_SHARED_LIBS OFF"
+  EXCLUDE_FROM_ALL YES)
 
 CPMAddPackage(
   NAME termbox2
@@ -57,6 +58,10 @@ target_include_directories(steamscribe PRIVATE src ${cjson_SOURCE_DIR} ${termbox
 target_link_libraries(steamscribe PRIVATE CURL::libcurl cjson inih Threads::Threads goblin)
 target_compile_definitions(steamscribe PRIVATE STEAMSCRIBE_VERSION="${PROJECT_VERSION}")
 target_compile_options(steamscribe PRIVATE -Wall -Wextra -Wpedantic)
+
+include(GNUInstallDirs)
+install(TARGETS steamscribe RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES README.md LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 enable_testing()
 add_subdirectory(tests)

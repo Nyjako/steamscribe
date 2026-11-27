@@ -1,0 +1,37 @@
+{
+  "response": {
+    "game_count": 3,
+    "games": [
+      {
+        "appid": 892970,
+        "name": "Valheim",
+        "playtime_forever": 7320,
+        "playtime_windows_forever": 7320,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "img_icon_url": "abc123",
+        "rtime_last_played": 1732000000
+      },
+      {
+        "appid": 1145360,
+        "name": "Hades",
+        "playtime_forever": 120,
+        "playtime_windows_forever": 120,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "img_icon_url": "def456",
+        "rtime_last_played": 1700000000
+      },
+      {
+        "appid": 413150,
+        "name": "Stardew Valley",
+        "playtime_forever": 0,
+        "playtime_windows_forever": 0,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "img_icon_url": "ghi789",
+        "rtime_last_played": 0
+      }
+    ]
+  }
+}

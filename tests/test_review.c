@@ -51,12 +51,16 @@ static int test_full_prompt_golden(void)
     req.themes = &themes;
     req.notes = "great with friends";
     req.recommend = true;
+    req.rating = 0;
     req.length = REVIEW_LEN_MEDIUM;
     req.tone = REVIEW_TONE_ENTHUSIASTIC;
     req.vocab = REVIEW_VOCAB_NORMAL;
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -83,6 +87,152 @@ static int test_full_prompt_golden(void)
 
     TEST_ASSERT(strcmp(system, expected_system) == 0);
     TEST_ASSERT(strcmp(user, expected_user) == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_playtime_adds_system_rule_and_user_line(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game;
+    game.appid = 892970;
+    game.name = arena_strdup(&arena, "Valheim");
+    game.short_desc = arena_strdup(&arena, "A survival game.");
+    game.genres = arena_strdup(&arena, "Action, Adventure");
+    game.developers = arena_strdup(&arena, "Iron Gate AB");
+    game.release_date = arena_strdup(&arena, "9 Sep, 2026");
+
+    theme_t liked[1];
+    liked[0] = make_theme(&arena, "building", "Building system", true);
+
+    theme_set_t themes;
+    themes.liked = liked;
+    themes.n_liked = 1;
+    themes.disliked = NULL;
+    themes.n_disliked = 0;
+
+    review_request_t req;
+    req.game = &game;
+    req.themes = &themes;
+    req.notes = "";
+    req.recommend = true;
+    req.rating = 0;
+    req.length = REVIEW_LEN_SHORT;
+    req.tone = REVIEW_TONE_CASUAL;
+    req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = NULL;
+    req.followup_answers = NULL;
+    req.n_followup = 0;
+    req.playtime_hours = 120;
+    req.bbcode = false;
+    req.spoiler_notes = "";
+
+    char *system = NULL;
+    char *user = NULL;
+    review_build_prompt(&arena, &req, &system, &user);
+
+    TEST_ASSERT(strstr(system, "The player has about 120 hours in this game.") != NULL);
+    TEST_ASSERT(strstr(user, "\nMy playtime: 120 hours\n") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_rating_adds_system_rule_and_user_line(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    game_info_t game;
+    game.appid = 892970;
+    game.name = arena_strdup(&arena, "Valheim");
+    game.short_desc = arena_strdup(&arena, "A survival game.");
+    game.genres = arena_strdup(&arena, "Action, Adventure");
+    game.developers = arena_strdup(&arena, "Iron Gate AB");
+    game.release_date = arena_strdup(&arena, "9 Sep, 2026");
+
+    theme_t liked[1];
+    liked[0] = make_theme(&arena, "building", "Building system", true);
+
+    theme_set_t themes;
+    themes.liked = liked;
+    themes.n_liked = 1;
+    themes.disliked = NULL;
+    themes.n_disliked = 0;
+
+    review_request_t req;
+    req.game = &game;
+    req.themes = &themes;
+    req.notes = "";
+    req.recommend = true;
+    req.rating = 8;
+    req.length = REVIEW_LEN_SHORT;
+    req.tone = REVIEW_TONE_CASUAL;
+    req.vocab = REVIEW_VOCAB_NORMAL;
+    req.followup_questions = NULL;
+    req.followup_answers = NULL;
+    req.n_followup = 0;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
+
+    char *system = NULL;
+    char *user = NULL;
+    review_build_prompt(&arena, &req, &system, &user);
+
+    TEST_ASSERT(strstr(system, "Work \"(8/10)\" into that verdict line exactly as written") != NULL);
+    TEST_ASSERT(strstr(user, "\nOverall recommendation: yes\nRating: 8/10\n") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_append_spoiler_plain(void)
+{
+    review_request_t req;
+    req.bbcode = false;
+    req.spoiler_notes = "The ending is actually a dream.";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_append_spoiler(&arena, &req, "I liked it overall.");
+    TEST_ASSERT(strcmp(result, "I liked it overall.\n\nSpoilers: The ending is actually a dream.") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_append_spoiler_bbcode(void)
+{
+    review_request_t req;
+    req.bbcode = true;
+    req.spoiler_notes = "The ending is actually a dream.";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_append_spoiler(&arena, &req, "I liked it overall.");
+    TEST_ASSERT(strcmp(result, "I liked it overall.\n\n[spoiler]The ending is actually a dream.[/spoiler]") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_append_spoiler_empty_is_a_no_op(void)
+{
+    review_request_t req;
+    req.bbcode = true;
+    req.spoiler_notes = "";
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *result = review_append_spoiler(&arena, &req, "I liked it overall.");
+    TEST_ASSERT(strcmp(result, "I liked it overall.") == 0);
 
     arena_free(&arena);
     return 0;
@@ -115,12 +265,16 @@ static int test_minimal_prompt_golden(void)
     req.themes = &themes;
     req.notes = "";
     req.recommend = false;
+    req.rating = 0;
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_NORMAL;
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -175,12 +329,16 @@ static int test_simple_vocab_adds_instruction_line(void)
     req.themes = &themes;
     req.notes = "";
     req.recommend = true;
+    req.rating = 0;
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_SIMPLE;
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -224,12 +382,16 @@ static int test_followup_answers_are_included_skipped_ones_are_not(void)
     req.themes = &themes;
     req.notes = "";
     req.recommend = true;
+    req.rating = 0;
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_NORMAL;
     req.followup_questions = questions;
     req.followup_answers = answers;
     req.n_followup = 2;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -272,12 +434,16 @@ static int test_no_followup_answered_omits_the_section(void)
     req.themes = &themes;
     req.notes = "";
     req.recommend = true;
+    req.rating = 0;
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_NORMAL;
     req.followup_questions = questions;
     req.followup_answers = answers;
     req.n_followup = 1;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     char *system = NULL;
     char *user = NULL;
@@ -313,12 +479,16 @@ static int test_generate_uses_fake_provider(void)
     req.themes = &themes;
     req.notes = "";
     req.recommend = true;
+    req.rating = 0;
     req.length = REVIEW_LEN_SHORT;
     req.tone = REVIEW_TONE_CASUAL;
     req.vocab = REVIEW_VOCAB_NORMAL;
     req.followup_questions = NULL;
     req.followup_answers = NULL;
     req.n_followup = 0;
+    req.playtime_hours = 0;
+    req.bbcode = false;
+    req.spoiler_notes = "";
 
     llm_fake_set_response("I really liked it. Recommended!");
 
@@ -342,6 +512,11 @@ static int test_generate_uses_fake_provider(void)
 int main(void)
 {
     if (test_full_prompt_golden()) return 1;
+    if (test_playtime_adds_system_rule_and_user_line()) return 1;
+    if (test_rating_adds_system_rule_and_user_line()) return 1;
+    if (test_append_spoiler_plain()) return 1;
+    if (test_append_spoiler_bbcode()) return 1;
+    if (test_append_spoiler_empty_is_a_no_op()) return 1;
     if (test_minimal_prompt_golden()) return 1;
     if (test_simple_vocab_adds_instruction_line()) return 1;
     if (test_followup_answers_are_included_skipped_ones_are_not()) return 1;

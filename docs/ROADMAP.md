@@ -12,7 +12,10 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 - [x] `steamscribe --version` and `--help`
 - [x] `util/`: arena, strbuf, error type
 - [x] CTest wired up with one dummy test
-- [x] GitHub Actions: build + test on Ubuntu (Linux is the priority platform; macOS CI dropped for now)
+- [x] GitHub Actions: build + test on Ubuntu (Linux is the priority platform; macOS CI dropped for
+      now, then brought back in M6 once nothing Linux-specific had crept in -- termbox2 and GOBLIN
+      both already handle non-Windows platforms generically, so it built clean on `macos-latest`
+      with no source changes needed)
 
 **Done when:** a fresh clone builds with two CMake commands and CI is green.
 
@@ -88,7 +91,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Worker thread plus animated spinner during fetch, analyze and generate (pulled forward into M4 once local-model inference turned out slow enough on CPU to need it)
 - [x] Copy to clipboard (OSC 52, plus whichever of `wl-copy` / `xclip` / `pbcopy` is installed, tried in parallel since there's no reliable success signal from either)
 - [x] Edit in `$EDITOR`, then return to the result screen (TUI only; `--plain` has no post-review menu to hang this off of)
-- [ ] Save review to `~/.local/share/steamscribe/reviews/`
+- [x] Save review to `~/.local/share/steamscribe/reviews/` -- `s` on the TUI Result screen, named `<appid>-<date>.txt`; `--plain` has no post-review menu to hang this off of (same reasoning as edit-in-$EDITOR)
 - [x] Add your own custom like/dislike items in the checklist
 - [x] Vocabulary/style option (normal vs. simple everyday words) picked per review, right after Length, in both the TUI and `--plain` -- backed by a new `[review] default_vocab` config default (not a roadmap item originally, added on request)
 - [x] Move a checklist item to the other side (liked <-> disliked), for when the AI filed something under the wrong one of your own opinions -- in both the TUI (`m`) and `--plain` (not a roadmap item originally, added on request)
@@ -98,7 +101,7 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 - [x] Theme checklist count is a genuinely variable 7-14 instead of always landing on exactly 7 -- a small local model given only a loose "5 to 8" range in the prompt text consistently settled on the low end regardless of how many distinct points the reviews actually supported, so the schema itself (for a schema-capable provider) now also sets `minItems`/`maxItems`
 - [x] `[steam] review_count` (how many player reviews to sample) is now editable from the TUI Settings screen, not just by hand-editing `config.ini`
 - [x] Error messages survive quitting: whatever's in the status bar (e.g. "Could not load game: ...") is now also printed to stderr once the terminal tears down, on a normal quit, Ctrl+C, or a fatal signal -- previously it only ever lived on the alternate screen, so Ctrl+C-ing out after an error silently discarded it
-- [ ] Friendly errors (no key, offline, game not found, rate-limited)
+- [x] Friendly errors: a missing Anthropic/OpenAI API key now fails fast with a precise message (e.g. "no Anthropic API key set -- export ANTHROPIC_API_KEY...") instead of round-tripping to an HTTP 401; a local OpenAI-compatible server (LM Studio etc., `base_url` set) is correctly left alone since it never needed a key. The shared HTTP layer (`net/http.c`, used by every Steam and LLM call) now gives specific wording for "offline" curl errors (DNS/connect/timeout), 401/403 ("check your API key"), 429 ("rate-limited... wait a bit"), and 5xx ("having trouble right now"), instead of a bare status code. Game-not-found was already friendly. Covered by `test_pipeline`
 - [x] ASan/UBSan CI job, no leaks or warnings (pulled forward into a `sanitize` CI job; the whole test suite passes clean under ASan/LSan/UBSan)
 
 **Done when:** you'd happily use it for your own reviews. **Tag v0.5.**
@@ -108,21 +111,50 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 ## M6 – Release
 **Goal:** others can install and use it.
 
-- [ ] README with real screenshots or an asciinema recording
-- [ ] `cmake --install` support, man page or `--help` polish
-- [ ] Release binaries for Linux x86_64 and macOS via GitHub Actions
-- [ ] AUR package / Homebrew tap (optional)
-- [ ] License, CONTRIBUTING, issue templates
+- [x] README with a real asciinema recording (end-to-end against the real Steam API and a local
+      Ollama model) -- `docs/demo/demo.cast`, linked from the new README "Demo" section, plus an
+      animated GIF rendering of the same recording (`docs/demo/demo.gif`, via `agg`) embedded
+      inline so it plays in the README directly, not just a click-through link
+- [x] `cmake --install` support (installs the binary plus README/LICENSE under a normal
+      prefix's `bin`/`share/doc`; cJSON's own install rules are excluded via CPM's
+      `EXCLUDE_FROM_ALL` so they don't leak into the install tree). Man page / further `--help`
+      polish not done yet.
+- [x] Release binaries for Linux x86_64 and macOS (arm64, via `macos-latest`) built and published
+      by a new `release.yml` GitHub Action on every push to `master` -- republishes a rolling
+      `continuous` pre-release (see the workflow's own comment for why: no per-commit
+      version-bump automation exists yet, so this isn't a tagged release per platform/arch, just
+      an always-current downloadable build of master). A real tagged v1.0 is still a separate,
+      later step -- that's what "Done when" below still refers to.
+- [x] ~~AUR package / Homebrew tap (optional)~~ -- explicitly skipped, not worth maintaining for
+      this project right now
+- [x] License (MIT, matching GOBLIN's own dual MIT/Unlicense) added at the repo root.
+- [x] `CONTRIBUTING.md` (branches, building, tests, code style, commit/PR conventions) and
+      GitHub issue templates (bug report / feature request, as issue forms under
+      `.github/ISSUE_TEMPLATE/`) -- linked from the README.
 
 **Done when:** **v1.0** tagged with downloadable binaries.
 
 ---
 
+## M7 – Post-v0.5 extras
+**Goal:** a few of the "Later / ideas" below that turned out worth doing sooner.
+
+- [x] Rating-style output (x/10) as an option alongside the plain yes/no recommendation -- a new optional "Rating 1-10" step right after Recommend, in both the TUI and `--plain`. Blank skips it (same "Enter skips" convention as notes); the model is told to work "(N/10)" into its closing verdict line exactly as given, never to invent its own number.
+- [x] Steam BBCode output option, scoped to spoilers specifically: a new per-review "Format: (p)lain / (b)bcode" step right after Vocab, in both the TUI and `--plain`, followed by an always-asked, optional, verbatim "Spoiler details" step. The spoiler text is never passed to the model at all -- it's appended to the generated review exactly as typed, after generation, wrapped in `[spoiler][/spoiler]` when the format is bbcode or under a plain "Spoilers:" label otherwise. The main review body itself isn't affected by the format choice; only the spoiler block's wrapping changes.
+- [x] Optional Steam Web API key to include your playtime ("After 120 hours…") -- your own free key (`STEAM_API_KEY`, env-only like the LLM keys) plus your SteamID64 (`[steam] steam_id` in config, not secret); best-effort like the follow-up questions, silently skipped if either is missing or the request fails. Fetched lazily right before generating (not during the game-load fetch), via `IPlayerService/GetOwnedGames`.
+- [x] Spoiler step now pre-fills itself with a best guess (`core/spoiler_predict.c`, one extra best-effort LLM call) -- quotes verbatim from your notes and follow-up answers whatever sounds like a genuine plot spoiler -- that you edit or clear like anything else you typed; the field you confirm is still the only thing that ever ships, never the guess on its own. Only triggered when the field's still empty, in both the TUI (its own loading screen) and `--plain`. A plain keyword match was tried first but turned out too narrow to actually fire on real notes.
+- [x] The Steam Web API key can now also be pasted straight into `[steam] steam_api_key` in config.ini (not just `STEAM_API_KEY` env) -- encrypted at rest on the next launch with a vendored ChaCha20 cipher and a machine-local key file (`util/secret_crypto.c`; see DESIGN.md 7.1 for what this does and doesn't protect against). The TUI Settings screen (F2) now also covers every other config.ini setting that wasn't editable there yet: steam language/review-count/cache-ttl/id/api-key, and the review length/tone/vocab defaults.
+- [x] Browse your own Steam library sorted by playtime instead of typing a game name to search for -- **F3** from anywhere, or **n** from a finished review, opens a Library screen (same j/k/Enter navigation as Select) fed by `IPlayerService/GetOwnedGames`. Picking a game, finishing a review, then picking another loops right back to the list; `n`/F3 reset the in-progress review's notes/rating/spoiler/follow-up state first, so nothing leaks between two games picked in the same run.
+- [x] `ollama` is now the default `[llm] provider` (was `anthropic`) -- it needs no API key and runs fully locally, which fits "others can install and use it" (M6) better than requiring a hosted key just to try the app. The default config.ini template shows `anthropic`/`openai` as commented-out alternatives instead. The Ollama model is also unloaded from VRAM/RAM right after a review is generated (`keep_alive: 0`), rather than left reserved until Ollama's own idle timeout.
+- [x] `docs/PROVIDERS.md`: setup steps for all three providers (getting a key, picking a model, pointing at a local server) plus a shortlist of local models worth trying with `ollama` -- linked from the README and from the Settings screen itself.
+- [x] Settings screen (F2) can test its staged (not-yet-saved) provider/model/base_url/num_ctx with **Ctrl+T** -- one real, minimal call that confirms the combination actually works, not just that a key is present, before you commit to it with Ctrl+S.
+
+**Done when:** all of the above are merged.
+
+---
+
 ## Later / ideas
-- Optional Steam Web API key to include your playtime ("After 120 hours…")
-- Steam BBCode output option (`[b]`, `[list]`)
 - Review language selection (both for reading reviews and writing yours)
-- Rating-style output (x/10) as an option
 - History browser for saved reviews
 - Windows native support (replace termbox2 or use a Windows console backend)
 

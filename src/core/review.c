@@ -46,6 +46,12 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     strbuf_append_cstr(&system, "- Use only the provided points below. Never invent or add any extra like, dislike, experience, number, or feature -- not even ones that sound typical for this kind of game.\n");
     strbuf_append_cstr(&system, "- Plain text only: no headings, no markdown, no emojis unless told otherwise below.\n");
     strbuf_append_cstr(&system, "- End with a single-line verdict stating whether you recommend the game.\n");
+    if (req->playtime_hours > 0)
+        strbuf_append_fmt(&system,
+                           "- The player has about %d hours in this game. You may work that in naturally if it "
+                           "fits (e.g. \"After %d hours...\"), but don't force it in and never mention it more than once.\n",
+                           req->playtime_hours, req->playtime_hours);
+    if (req->rating > 0) strbuf_append_fmt(&system, "- The player also gave it a rating. Work \"(%d/10)\" into that verdict line exactly as written -- don't change the number.\n", req->rating);
     strbuf_append_fmt(&system, "- Length: %s.\n", length_instruction(req->length));
     strbuf_append_fmt(&system, "- %s\n", tone_instruction(req->tone));
 
@@ -90,13 +96,31 @@ void review_build_prompt(arena_t *arena, const review_request_t *req, char **out
     }
 
     strbuf_append_fmt(&user, "\nAdditional notes: %s\n", (req->notes && req->notes[0]) ? req->notes : "(none)");
+    if (req->playtime_hours > 0) strbuf_append_fmt(&user, "\nMy playtime: %d hours\n", req->playtime_hours);
     strbuf_append_fmt(&user, "\nOverall recommendation: %s\n", req->recommend ? "yes" : "no");
+    if (req->rating > 0) strbuf_append_fmt(&user, "Rating: %d/10\n", req->rating);
 
     *out_system = arena_strdup(arena, strbuf_cstr(&system));
     *out_user = arena_strdup(arena, strbuf_cstr(&user));
 
     strbuf_free(&system);
     strbuf_free(&user);
+}
+
+char *review_append_spoiler(arena_t *arena, const review_request_t *req, const char *generated_text)
+{
+    if (!req->spoiler_notes || !req->spoiler_notes[0]) return arena_strdup(arena, generated_text);
+
+    strbuf_t out;
+    strbuf_init(&out);
+    strbuf_append_cstr(&out, generated_text);
+
+    if (req->bbcode) strbuf_append_fmt(&out, "\n\n[spoiler]%s[/spoiler]", req->spoiler_notes);
+    else strbuf_append_fmt(&out, "\n\nSpoilers: %s", req->spoiler_notes);
+
+    char *result = arena_strdup(arena, strbuf_cstr(&out));
+    strbuf_free(&out);
+    return result;
 }
 
 int review_generate(arena_t *arena, const llm_provider_t *provider, const llm_cfg_t *cfg, const review_request_t *req, char **out_text, err_t *err)
@@ -109,7 +133,7 @@ int review_generate(arena_t *arena, const llm_provider_t *provider, const llm_cf
     strbuf_init(&response);
 
     int rc = provider->complete(cfg, system, user, &response, err);
-    if (rc == 0) *out_text = arena_strdup(arena, strbuf_cstr(&response));
+    if (rc == 0) *out_text = review_append_spoiler(arena, req, strbuf_cstr(&response));
 
     strbuf_free(&response);
     return rc;

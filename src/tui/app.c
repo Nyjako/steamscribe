@@ -6,16 +6,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <termbox2.h>
 
+#include <goblin/appdirs.h>
+
 #include "core/followup.h"
 #include "core/pipeline.h"
 #include "core/review.h"
+#include "core/spoiler_predict.h"
 #include "tui/keys.h"
 #include "tui/state.h"
 #include "tui/widgets.h"
+
+/* Mirrors the fixed provider list tui/state.c cycles the Settings "Provider"
+ * field through (that list is private to state.c -- this is app.c's own
+ * copy, used both to draw the field's current choice and to resolve it to
+ * an actual provider name for the "test connection" action). */
+static const char *SETTINGS_PROVIDER_NAMES[] = {"anthropic", "openai", "ollama"};
 
 /* Set once tui_run() has a live app_state_t, so a fatal signal's handler
  * (which gets no arguments of its own) can still recover whatever status
@@ -58,14 +68,33 @@ static void install_signal_handlers(void)
 
 static bool is_loading_screen(tui_screen_t screen)
 {
-    return screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_REVIEW;
+    return screen == TUI_SCREEN_LOADING_LIBRARY || screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_SPOILER_PREDICT ||
+           screen == TUI_SCREEN_LOADING_REVIEW || screen == TUI_SCREEN_LOADING_TEST_CONNECTION;
 }
 
-static void draw_settings_field(int y, const char *label, const char *value, size_t cursor, bool focused, bool editing)
+/* `mask`, when true and the field isn't being actively edited, displays
+ * one asterisk per character instead of `value` itself -- so a secret
+ * typed in here (the Steam API key) isn't left sitting on screen once you
+ * tab away from it, while still showing it plainly while you're typing or
+ * pasting it in, to actually see what you entered. The substitution is
+ * 1:1 so the cursor math below doesn't need to change for it. */
+static void draw_settings_field(int y, const char *label, const char *value, size_t cursor, bool focused, bool editing, bool mask)
 {
     uintattr_t fg = focused ? TB_BLACK : TB_DEFAULT;
     uintattr_t bg = focused ? TB_CYAN : TB_DEFAULT;
-    tb_printf(2, y, fg, bg, "%-10s %s", label, value);
+
+    const char *shown = value;
+    char masked[128];
+    if (mask && !editing && value[0])
+    {
+        size_t n = strlen(value);
+        if (n >= sizeof(masked)) n = sizeof(masked) - 1;
+        memset(masked, '*', n);
+        masked[n] = '\0';
+        shown = masked;
+    }
+
+    tb_printf(2, y, fg, bg, "%-10s %s", label, shown);
     if (focused && editing) tb_set_cursor(2 + 11 + (int)cursor, y);
 }
 
@@ -80,7 +109,7 @@ static void draw(app_state_t *state, char spinner_ch)
             int width = tb_width() - 4;
             if (width < 1) width = 1;
 
-            widgets_draw_header(1, "steamscribe -- search for a game (F2 for settings)");
+            widgets_draw_header(1, "steamscribe -- search for a game (F2 settings, F3 browse your library by playtime)");
             tb_print(2, 3, TB_DEFAULT, TB_DEFAULT, "Game name >");
             widgets_draw_text_area(4, width, state->search_input, state->search_input_cursor);
             widgets_draw_status_bar(state->arena, state->status);
@@ -90,6 +119,17 @@ static void draw(app_state_t *state, char spinner_ch)
         case TUI_SCREEN_SELECT:
             widgets_draw_header(1, "Pick a game (Enter), Esc to search again, q to quit");
             widgets_draw_search_results(3, &state->search_results, state->select_cursor);
+            widgets_draw_status_bar(state->arena, state->status);
+            break;
+
+        case TUI_SCREEN_LOADING_LIBRARY:
+            widgets_draw_header(1, "Loading your library...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Fetching your owned games and playtime...", spinner_ch);
+            break;
+
+        case TUI_SCREEN_LIBRARY:
+            widgets_draw_header(1, "Your library, most played first -- Enter to pick, Esc to search instead, q to quit");
+            widgets_draw_library(3, &state->library, state->library_cursor);
             widgets_draw_status_bar(state->arena, state->status);
             break;
 
@@ -135,6 +175,11 @@ static void draw(app_state_t *state, char spinner_ch)
             tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Coming up with a few optional follow-up questions...", spinner_ch);
             break;
 
+        case TUI_SCREEN_LOADING_SPOILER_PREDICT:
+            widgets_draw_header(1, "Checking for spoilers...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Guessing whether any of your notes sound like a spoiler...", spinner_ch);
+            break;
+
         case TUI_SCREEN_NOTES:
         {
             int width = tb_width() - 4;
@@ -168,6 +213,13 @@ static void draw(app_state_t *state, char spinner_ch)
                 tb_printf(2, next_y, TB_DEFAULT, TB_DEFAULT, "Recommend it? (y/n) > %s", answer);
             }
 
+            if (state->notes_step == TUI_NOTES_STEP_RATING)
+            {
+                const char *prefix = "Rating 1-10, optional (Enter skips) > ";
+                tb_printf(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "%s%s", prefix, state->rating_input);
+                tb_set_cursor(2 + (int)strlen(prefix) + (int)state->rating_input_cursor, next_y + 1);
+            }
+
             if (state->notes_step == TUI_NOTES_STEP_LENGTH)
             {
                 tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Length: (s)hort / (m)edium / (l)ong >");
@@ -176,6 +228,17 @@ static void draw(app_state_t *state, char spinner_ch)
             if (state->notes_step == TUI_NOTES_STEP_VOCAB)
             {
                 tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Words: (n)ormal / (s)imple (simpler, everyday words) >");
+            }
+
+            if (state->notes_step == TUI_NOTES_STEP_FORMAT)
+            {
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Format: (p)lain / (b)bcode >");
+            }
+
+            if (state->notes_step == TUI_NOTES_STEP_SPOILER)
+            {
+                tb_print(2, next_y + 1, TB_DEFAULT, TB_DEFAULT, "Spoiler details (optional) -- Enter skips once blank, Ctrl+S continues");
+                widgets_draw_text_area(next_y + 2, width, state->spoiler_input, state->spoiler_input_cursor);
             }
             break;
         }
@@ -186,25 +249,43 @@ static void draw(app_state_t *state, char spinner_ch)
             break;
 
         case TUI_SCREEN_RESULT:
-            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit in $EDITOR, (c) copy, (o) change your answers, (q) quit");
+            widgets_draw_header(1, "Your review -- (r) regenerate, (e) edit, (c) copy, (s) save, (o) change answers, (n) pick another game, (q) quit");
             if (state->review_text) widgets_draw_wrapped_text(state->arena, 2, 3, tb_width() - 4, state->review_text);
             widgets_draw_status_bar(state->arena, state->status);
             break;
 
+        case TUI_SCREEN_LOADING_TEST_CONNECTION:
+            widgets_draw_header(1, "Testing connection...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Trying provider/model/base_url as currently entered (not yet saved)...", spinner_ch);
+            break;
+
         case TUI_SCREEN_SETTINGS:
         {
-            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles provider, Enter edits, Ctrl+S saves, Esc cancels");
+            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles choices, Enter edits text, Ctrl+T tests, Ctrl+S saves, Esc cancels");
 
-            static const char *provider_names[] = {"anthropic", "openai", "ollama"};
-            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false);
-            draw_settings_field(4, "Model:", state->settings_model, state->settings_model_cursor, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing);
-            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_base_url_cursor, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing);
-            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_num_ctx_cursor, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing);
-            draw_settings_field(7, "Reviews:", state->settings_review_count, state->settings_review_count_cursor, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT, state->settings_editing);
+            static const char *length_names[] = {"short", "medium", "long"};
+            static const char *tone_names[] = {"casual", "neutral", "enthusiastic"};
+            static const char *vocab_names[] = {"normal", "simple"};
 
-            tb_print(2, 9, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
-            tb_print(2, 10, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
-            tb_print(2, 11, TB_DEFAULT, TB_DEFAULT, "API keys come only from ANTHROPIC_API_KEY / OPENAI_API_KEY -- not editable here.");
+            draw_settings_field(3, "Provider:", SETTINGS_PROVIDER_NAMES[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false, false);
+            draw_settings_field(4, "Model:", state->settings_model, state->settings_model_cursor, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing, false);
+            draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_base_url_cursor, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing, false);
+            draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_num_ctx_cursor, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing, false);
+            draw_settings_field(7, "Reviews:", state->settings_review_count, state->settings_review_count_cursor, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT, state->settings_editing, false);
+            draw_settings_field(8, "Language:", state->settings_steam_language, state->settings_steam_language_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_LANGUAGE, state->settings_editing, false);
+            draw_settings_field(9, "Cache TTL:", state->settings_steam_cache_ttl_hours, state->settings_steam_cache_ttl_hours_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS, state->settings_editing, false);
+            draw_settings_field(10, "Steam ID:", state->settings_steam_id, state->settings_steam_id_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_ID, state->settings_editing, false);
+            draw_settings_field(11, "Steam key:", state->settings_steam_api_key, state->settings_steam_api_key_cursor, state->settings_field == TUI_SETTINGS_FIELD_STEAM_API_KEY, state->settings_editing, true);
+            draw_settings_field(12, "Length:", length_names[state->settings_review_length_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH, false, false);
+            draw_settings_field(13, "Tone:", tone_names[state->settings_review_tone_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE, false, false);
+            draw_settings_field(14, "Vocab:", vocab_names[state->settings_review_vocab_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB, false, false);
+
+            tb_print(2, 16, TB_DEFAULT, TB_DEFAULT, "Provider/model/key setup for all three: see docs/PROVIDERS.md. Ctrl+T tests the values above.");
+            tb_print(2, 17, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
+            tb_print(2, 18, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
+            tb_print(2, 19, TB_DEFAULT, TB_DEFAULT, "Steam ID/key: your own SteamID64 + a Steam Web API key -- enables playtime in reviews.");
+            tb_print(2, 20, TB_DEFAULT, TB_DEFAULT, "Steam key is encrypted at rest once saved. Anthropic/OpenAI keys stay env-only, not here.");
+            if (state->cfg->steam_api_key_from_env) tb_print(2, 21, TB_DEFAULT, TB_DEFAULT, "Steam key is currently set via STEAM_API_KEY in the environment (takes priority over this).");
             widgets_draw_status_bar(state->arena, state->status);
             break;
         }
@@ -247,11 +328,14 @@ typedef struct bg_result_t
     bool done;
     int rc;
     err_t err;
+    steam_library_t library;
     game_info_t game;
     theme_set_t themes;
     char **questions;
     size_t n_questions;
+    char *spoiler_guess;
     char *review_text;
+    char *test_connection_reply;
 } bg_result_t;
 
 typedef struct bg_ctx_t
@@ -260,6 +344,29 @@ typedef struct bg_ctx_t
     const config_t *cfg;
     bg_result_t *result;
 } bg_ctx_t;
+
+static void *bg_fetch_library_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    steam_library_t library;
+    memset(&library, 0, sizeof(library));
+    int rc = pipeline_fetch_library(ctx->state->arena, ctx->cfg, &library, &err);
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0) result->library = library;
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
 
 static void *bg_load_game_thread(void *argp)
 {
@@ -322,6 +429,38 @@ static void *bg_generate_followup_thread(void *argp)
     return NULL;
 }
 
+static void *bg_predict_spoiler_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    int rc = pipeline_resolve_llm(ctx->cfg, &provider, &llm_cfg, &err);
+
+    char *spoiler_guess = NULL;
+    if (rc == 0)
+    {
+        const char *answers[FOLLOWUP_MAX_QUESTIONS];
+        for (size_t i = 0; i < ctx->state->n_followup_questions; i++) answers[i] = ctx->state->followup_answer[i];
+
+        rc = spoiler_predict_generate(ctx->state->arena, provider, &llm_cfg, ctx->state->game.name, ctx->state->notes_input, answers, ctx->state->n_followup_questions, &spoiler_guess, &err);
+    }
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0) result->spoiler_guess = spoiler_guess;
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
+
 static void *bg_generate_review_thread(void *argp)
 {
     bg_ctx_t *ctx = (bg_ctx_t *)argp;
@@ -345,20 +484,58 @@ static void *bg_generate_review_thread(void *argp)
         req.themes = &ctx->state->themes;
         req.notes = ctx->state->notes_input;
         req.recommend = ctx->state->recommend;
+        req.rating = ctx->state->rating;
         req.length = ctx->state->length;
         req.tone = ctx->state->tone;
         req.vocab = ctx->state->vocab;
         req.followup_questions = ctx->state->followup_questions;
         req.followup_answers = ctx->state->n_followup_questions > 0 ? followup_answer_ptrs : NULL;
         req.n_followup = ctx->state->n_followup_questions;
+        req.bbcode = ctx->state->bbcode;
+        req.spoiler_notes = ctx->state->spoiler_input;
+
+        steam_playtime_t playtime;
+        pipeline_fetch_playtime(ctx->cfg, ctx->state->appid, &playtime);
+        req.playtime_hours = playtime.found ? playtime.playtime_minutes / 60 : 0;
 
         rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
+        if (rc == 0) pipeline_unload_llm_model(provider, &llm_cfg);
     }
 
     pthread_mutex_lock(&result->mutex);
     result->rc = rc;
     result->err = err;
     result->review_text = review_text;
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
+
+/* Tests the Settings screen's *staged* provider/model/base_url/num_ctx
+ * (not whatever's already saved to ctx->cfg) with one real, minimal
+ * completion call -- so a typo'd model name or an unreachable base_url
+ * shows up right there in Settings, before Ctrl+S commits it and it only
+ * surfaces later as a failed review. */
+static void *bg_test_connection_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    const char *provider_name = SETTINGS_PROVIDER_NAMES[ctx->state->settings_provider_index];
+    int num_ctx = ctx->state->settings_num_ctx_len > 0 ? atoi(ctx->state->settings_num_ctx) : 0;
+
+    char *reply = NULL;
+    int rc = pipeline_test_llm_connection(ctx->state->arena, ctx->cfg, provider_name, ctx->state->settings_model, ctx->state->settings_base_url, num_ctx, &reply, &err);
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0) result->test_connection_reply = reply;
     result->done = true;
     pthread_mutex_unlock(&result->mutex);
 
@@ -446,6 +623,72 @@ static void do_copy_review(app_state_t *state)
 
     if (copied) snprintf(state->status, sizeof(state->status), "Copied to clipboard");
     else snprintf(state->status, sizeof(state->status), "Sent to clipboard via your terminal (OSC 52) -- no local clipboard tool found to confirm it landed");
+}
+
+/* Writes state->review_text to ~/.local/share/steamscribe/reviews/ (or
+ * wherever XDG_DATA_HOME points), named "<appid>-<date>.txt" per
+ * DESIGN.md 7 -- the appid and timestamp are enough on their own to make
+ * a unique, sortable filename without needing to sanitize the game name. */
+static void do_save_review(app_state_t *state)
+{
+    if (!state->review_text || !state->review_text[0])
+    {
+        snprintf(state->status, sizeof(state->status), "Nothing to save yet");
+        return;
+    }
+
+    char *data_dir = goblin_appdir_data_dir("steamscribe");
+    if (!data_dir)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: no home directory found");
+        return;
+    }
+
+    char *reviews_dir = goblin_appdir_join(data_dir, "reviews");
+    free(data_dir);
+    if (!reviews_dir)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: out of memory");
+        return;
+    }
+
+    if (goblin_appdir_mkdir_p(reviews_dir) != 0)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: could not create %s", reviews_dir);
+        free(reviews_dir);
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+    char stamp[32];
+    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &tm_now);
+
+    char filename[64];
+    snprintf(filename, sizeof(filename), "%u-%s.txt", state->appid, stamp);
+
+    char *path = goblin_appdir_join(reviews_dir, filename);
+    free(reviews_dir);
+    if (!path)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: out of memory");
+        return;
+    }
+
+    FILE *fp = fopen(path, "w");
+    if (!fp)
+    {
+        snprintf(state->status, sizeof(state->status), "Could not save: could not create %s", path);
+        free(path);
+        return;
+    }
+
+    fputs(state->review_text, fp);
+    fclose(fp);
+
+    snprintf(state->status, sizeof(state->status), "Saved to %s", path);
+    free(path);
 }
 
 /* Opens state->review_text in $EDITOR (falling back to "vi"), replacing it
@@ -573,7 +816,12 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
     pthread_join(thread, NULL);
     pthread_mutex_destroy(&result.mutex);
 
-    if (state->screen == TUI_SCREEN_LOADING_GAME)
+    if (state->screen == TUI_SCREEN_LOADING_LIBRARY)
+    {
+        if (result.rc == 0) tui_apply_library_loaded(state, result.library);
+        else tui_apply_library_load_failed(state, result.err.msg);
+    }
+    else if (state->screen == TUI_SCREEN_LOADING_GAME)
     {
         if (result.rc == 0) tui_apply_game_loaded(state, state->appid, result.game, result.themes);
         else tui_apply_game_load_failed(state, result.err.msg);
@@ -584,6 +832,18 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
          * questions, never a hard error shown to the user. */
         if (result.rc == 0) tui_apply_followup_generated(state, result.questions, result.n_questions);
         else tui_apply_followup_failed(state);
+    }
+    else if (state->screen == TUI_SCREEN_LOADING_SPOILER_PREDICT)
+    {
+        /* Best-effort and optional: a failure here just means the Spoiler
+         * step starts blank, never a hard error shown to the user. */
+        if (result.rc == 0) tui_apply_spoiler_predicted(state, result.spoiler_guess);
+        else tui_apply_spoiler_predict_failed(state);
+    }
+    else if (state->screen == TUI_SCREEN_LOADING_TEST_CONNECTION)
+    {
+        if (result.rc == 0) tui_apply_test_connection_ok(state, result.test_connection_reply);
+        else tui_apply_test_connection_failed(state, result.err.msg);
     }
     else
     {
@@ -612,8 +872,11 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         {
             tui_screen_t loading_screen = state.screen;
             void *(*thread_fn)(void *) = bg_generate_review_thread;
-            if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
+            if (loading_screen == TUI_SCREEN_LOADING_LIBRARY) thread_fn = bg_fetch_library_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
             else if (loading_screen == TUI_SCREEN_LOADING_FOLLOWUP) thread_fn = bg_generate_followup_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_SPOILER_PREDICT) thread_fn = bg_predict_spoiler_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_TEST_CONNECTION) thread_fn = bg_test_connection_thread;
 
             run_loading_screen(&state, cfg, thread_fn);
             continue;
@@ -630,6 +893,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
         else if (action == TUI_ACTION_SAVE_SETTINGS) do_save_settings(&state);
         else if (action == TUI_ACTION_EDIT_REVIEW) do_edit_review(&state);
         else if (action == TUI_ACTION_COPY_REVIEW) do_copy_review(&state);
+        else if (action == TUI_ACTION_SAVE_REVIEW) do_save_review(&state);
     }
 
     tb_shutdown();

@@ -19,20 +19,28 @@
 #define TUI_SETTINGS_URL_CAP 256
 #define TUI_SETTINGS_NUM_CTX_CAP 16
 #define TUI_SETTINGS_REVIEW_COUNT_CAP 16
+#define TUI_SETTINGS_LANGUAGE_CAP 64
+#define TUI_SETTINGS_CACHE_TTL_CAP 16
+#define TUI_SETTINGS_STEAM_ID_CAP 32
+#define TUI_SETTINGS_STEAM_API_KEY_CAP 256
 #define TUI_CUSTOM_ITEM_CAP 256
 
 typedef enum
 {
     TUI_SCREEN_SEARCH,
     TUI_SCREEN_SELECT,
+    TUI_SCREEN_LOADING_LIBRARY,
+    TUI_SCREEN_LIBRARY,
     TUI_SCREEN_LOADING_GAME,
     TUI_SCREEN_LIKED,
     TUI_SCREEN_DISLIKED,
     TUI_SCREEN_LOADING_FOLLOWUP,
     TUI_SCREEN_NOTES,
+    TUI_SCREEN_LOADING_SPOILER_PREDICT,
     TUI_SCREEN_LOADING_REVIEW,
     TUI_SCREEN_RESULT,
     TUI_SCREEN_SETTINGS,
+    TUI_SCREEN_LOADING_TEST_CONNECTION,
     TUI_SCREEN_QUIT,
 } tui_screen_t;
 
@@ -41,8 +49,11 @@ typedef enum
     TUI_NOTES_STEP_FOLLOWUP,
     TUI_NOTES_STEP_TEXT,
     TUI_NOTES_STEP_RECOMMEND,
+    TUI_NOTES_STEP_RATING,
     TUI_NOTES_STEP_LENGTH,
     TUI_NOTES_STEP_VOCAB,
+    TUI_NOTES_STEP_FORMAT,
+    TUI_NOTES_STEP_SPOILER,
 } tui_notes_step_t;
 
 typedef enum
@@ -52,6 +63,13 @@ typedef enum
     TUI_SETTINGS_FIELD_BASE_URL,
     TUI_SETTINGS_FIELD_NUM_CTX,
     TUI_SETTINGS_FIELD_REVIEW_COUNT,
+    TUI_SETTINGS_FIELD_STEAM_LANGUAGE,
+    TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS,
+    TUI_SETTINGS_FIELD_STEAM_ID,
+    TUI_SETTINGS_FIELD_STEAM_API_KEY,
+    TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH,
+    TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE,
+    TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB,
     TUI_SETTINGS_FIELD_COUNT,
 } tui_settings_field_t;
 
@@ -60,12 +78,16 @@ typedef enum
     TUI_ACTION_NONE,
     TUI_ACTION_QUIT,
     TUI_ACTION_SEARCH,          /* run a search for state->search_input */
+    TUI_ACTION_LOAD_LIBRARY,    /* fetch the player's owned-games library, sorted by playtime */
     TUI_ACTION_LOAD_GAME,       /* fetch game info + themes for state->appid */
     TUI_ACTION_GENERATE_FOLLOWUP, /* generate optional follow-up questions from state->themes */
+    TUI_ACTION_PREDICT_SPOILER, /* best-guess the Spoiler step's pre-fill from state's notes/follow-up answers */
     TUI_ACTION_GENERATE_REVIEW, /* call the LLM with state's notes/recommend/length/tone */
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
+    TUI_ACTION_TEST_LLM_CONNECTION, /* try the Settings screen's staged provider/model/base_url/num_ctx with one real call */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
     TUI_ACTION_COPY_REVIEW,     /* copy state->review_text to the clipboard */
+    TUI_ACTION_SAVE_REVIEW,     /* write state->review_text to ~/.local/share/steamscribe/reviews/ */
 } tui_action_t;
 
 typedef struct app_state_t
@@ -82,6 +104,9 @@ typedef struct app_state_t
 
     steam_search_results_t search_results;
     size_t select_cursor;
+
+    steam_library_t library;
+    size_t library_cursor;
 
     uint32_t appid;
     game_info_t game;
@@ -112,9 +137,18 @@ typedef struct app_state_t
     size_t notes_input_cursor;
     tui_notes_step_t notes_step;
     bool recommend;
+    char rating_input[3]; /* "0".."10", blank means no rating given */
+    size_t rating_input_len;
+    size_t rating_input_cursor;
+    int rating; /* 0 = none, else 1-10; parsed from rating_input on continue */
     review_len_t length;
     review_tone_t tone;
     review_vocab_t vocab;
+    bool bbcode; /* false = plain, true = bbcode (affects the spoiler block below) */
+
+    char spoiler_input[TUI_NOTES_INPUT_CAP];
+    size_t spoiler_input_len;
+    size_t spoiler_input_cursor;
 
     char *review_text;
 
@@ -136,6 +170,21 @@ typedef struct app_state_t
     char settings_review_count[TUI_SETTINGS_REVIEW_COUNT_CAP];
     size_t settings_review_count_len;
     size_t settings_review_count_cursor;
+    char settings_steam_language[TUI_SETTINGS_LANGUAGE_CAP];
+    size_t settings_steam_language_len;
+    size_t settings_steam_language_cursor;
+    char settings_steam_cache_ttl_hours[TUI_SETTINGS_CACHE_TTL_CAP];
+    size_t settings_steam_cache_ttl_hours_len;
+    size_t settings_steam_cache_ttl_hours_cursor;
+    char settings_steam_id[TUI_SETTINGS_STEAM_ID_CAP];
+    size_t settings_steam_id_len;
+    size_t settings_steam_id_cursor;
+    char settings_steam_api_key[TUI_SETTINGS_STEAM_API_KEY_CAP]; /* masked on screen except while editing */
+    size_t settings_steam_api_key_len;
+    size_t settings_steam_api_key_cursor;
+    int settings_review_length_index; /* into short/medium/long */
+    int settings_review_tone_index;   /* into casual/neutral/enthusiastic */
+    int settings_review_vocab_index;  /* into normal/simple */
 } app_state_t;
 
 /* Zeroes `state` and sets it up to start either on the Search screen
@@ -156,13 +205,19 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key);
  * move to the next screen. */
 void tui_apply_search_results(app_state_t *state, steam_search_results_t results);
 void tui_apply_search_failed(app_state_t *state, const char *message);
+void tui_apply_library_loaded(app_state_t *state, steam_library_t library);
+void tui_apply_library_load_failed(app_state_t *state, const char *message);
 void tui_apply_game_loaded(app_state_t *state, uint32_t appid, game_info_t game, theme_set_t themes);
 void tui_apply_game_load_failed(app_state_t *state, const char *message);
 void tui_apply_followup_generated(app_state_t *state, char **questions, size_t count);
 void tui_apply_followup_failed(app_state_t *state);
+void tui_apply_spoiler_predicted(app_state_t *state, const char *guess);
+void tui_apply_spoiler_predict_failed(app_state_t *state);
 void tui_apply_review_generated(app_state_t *state, char *review_text);
 void tui_apply_review_failed(app_state_t *state, const char *message);
 void tui_apply_settings_saved(app_state_t *state);
 void tui_apply_settings_save_failed(app_state_t *state, const char *message);
+void tui_apply_test_connection_ok(app_state_t *state, const char *reply);
+void tui_apply_test_connection_failed(app_state_t *state, const char *message);
 
 #endif

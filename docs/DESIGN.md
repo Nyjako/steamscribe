@@ -26,21 +26,26 @@ Help a player write a short, honest Steam review in under two minutes, without l
 ```
  ┌──────────┐   ┌──────────┐   ┌───────────────┐   ┌────────────┐
  │  Search  │──▶│  Select  │──▶│ Fetch+Analyze │──▶│   Liked    │
- └──────────┘   └──────────┘   │   (spinner)   │   │ checklist  │
-                               └───────────────┘   └─────┬──────┘
- ┌──────────┐   ┌──────────┐   ┌───────────────┐   ┌─────▼──────┐
- │  Result  │◀──│ Generate │◀──│ Notes + y/n + │◀──│  Disliked  │
- │ c/e/r/s/q│   │(spinner) │   │ length/tone   │   │ checklist  │
- └──────────┘   └──────────┘   └───────────────┘   └────────────┘
+ └────┬─────┘   └──────────┘   │   (spinner)   │   │ checklist  │
+      │F3        ▲             └───────────────┘   └─────┬──────┘
+ ┌────▼─────┐    │(Esc)        ┌───────────────┐   ┌─────▼──────┐
+ │ Library  │────┘             │ Notes + y/n + │◀──│  Disliked  │
+ │(by hours)│──────────────────▶   length/tone │   │ checklist  │
+ └────▲─────┘        (Enter)   └───────┬───────┘   └────────────┘
+      │ n                             ▼
+ ┌────┴─────┐   ┌──────────┐   ┌───────────────┐
+ │  Result  │◀──│ Generate │◀──│   (same as    │
+ │c/e/r/s/o/n│   │(spinner) │   │    above)     │
+ └──────────┘   └──────────┘   └───────────────┘
 ```
 
-The TUI is a simple **state machine**. Each screen is a state with `draw()` and `handle_event()`, and transitions go forward or back (Esc).
+The TUI is a simple **state machine**. Each screen is a state with `draw()` and `handle_event()`, and transitions go forward or back (Esc). F3 (from anywhere) and `n` (from Result) both drop into **Library** -- browsing your own owned games by playtime instead of typing a name to search for -- and either loops back to it with Esc/`n` without leaving the TUI, or back to Search if you'd rather type a name after all.
 
 ---
 
 ## 3. External data
 
-All endpoints are public JSON. No key is needed.
+All endpoints are public JSON and need no key, except 3.5 (playtime), which is opt-in.
 
 ### 3.1 Search
 `GET https://store.steampowered.com/api/storesearch/?term=<q>&cc=us&l=english`
@@ -87,6 +92,41 @@ every parameter besides the optional `key` travels inside a single JSON-encoded
 - Sequential requests with a ~300 ms delay between review pages
 - 10 s connect and 30 s total timeout, with 2 retries and backoff on 429/5xx
 
+### 3.5 Playtime (optional)
+`GET https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=<key>&steamid=<id>&appids_filter[0]=<appid>&include_appinfo=false&include_played_free_games=true&format=json`
+→ `{"response": {"games": [{"appid": ..., "playtime_forever": <minutes>, ...}]}}` -- `games`
+is absent (or empty) if the account doesn't own that appid, or the profile/game details
+are private. This is the **Steam Web API**, a different service from 3.1-3.3 above (which
+are the public store/community endpoints): it needs the account's own free API key and
+SteamID64 (`[steam] steam_id` in config.ini -- not a secret, so it's fine to keep there
+as plain text). The key itself can come from `STEAM_API_KEY` (env, same as the LLM keys,
+and takes priority if set), or be pasted straight into `[steam] steam_api_key` in
+config.ini -- see 7.1 for how that's kept off disk as plain text. Authenticates via a
+`key=` query parameter rather than a header, which is why
+`pipeline_fetch_playtime()` deliberately does *not* log `err.msg` on failure (it's built
+from the full request URL, which would leak the key into `debug.log`) -- it logs just the
+HTTP status code instead.
+
+Entirely best-effort, same pattern as the follow-up questions: a missing key/id, or any
+failure calling the API, just means no playtime is passed to the review prompt, never a
+hard error. Fetched lazily right before generating the review (not during the game-load
+fetch, since it's cheap and only needed at that point), and converted from minutes to
+whole hours, so playtime under 60 minutes just doesn't surface at all.
+
+### 3.6 Owned-games library (optional)
+`GET https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=<key>&steamid=<id>&include_appinfo=true&include_played_free_games=true&format=json`
+→ `{"response": {"games": [{"appid": ..., "name": ..., "playtime_forever": <minutes>, ...}]}}`
+
+Same Steam Web API/auth as 3.5, just without `appids_filter` and with `include_appinfo=true`
+so each entry carries its own name -- the whole account library in one request, not one
+game. Unlike 3.5 this is **not** best-effort: there's nothing useful to show instead of a
+library, so a missing key/id or a failed request surfaces as an error on the Search
+screen (steering the player to Settings) rather than being silently skipped. Sorted
+most-played-first client-side after fetching (`qsort`, Steam doesn't sort this response
+itself) and rendered in a scrolling window (`widgets_draw_library`) so a library with more
+games than fit on screen stays navigable. Same URL-leak caveat as 3.5 applies to
+`pipeline_fetch_library()`'s error handling.
+
 ---
 
 ## 4. LLM usage
@@ -96,20 +136,24 @@ a few follow-up questions, and one to generate the review text.
 
 ### 4.1 Theme extraction
 Two calls, not one: liked themes are extracted from only the positive reviews, disliked
-themes from only the negative ones, each capped to 60 reviews, then merged. This keeps
-each prompt small (good for small-context local models) and lets a schema-capable
-provider constrain each call to a simple, single-key shape.
+themes from only the negative ones, then merged. This lets a schema-capable provider
+constrain each call to a simple, single-key shape, and keeps each side's prompt no
+larger than it needs to be for that side alone.
 
-For `ollama`, a side's reviews are *also* trimmed by total length (not just count) to a
-budget computed from `num_ctx` -- a conservative chars-per-token estimate, less
-`THEMES_PROMPT_OVERHEAD_TOKENS` reserved for the system prompt, the schema, and the
-model's own reply. Without this, a game whose reviews happen to be unusually long (e.g.
-long BBCode-formatted "Pros/Cons" lists) could build a prompt that overflows the model's
-context outright -- Ollama rejects that with an HTTP 400 ("request exceeds the available
-context size") rather than just answering sloppily, which surfaced as "Could not load
-game" with no further explanation. Other providers don't set `num_ctx`, so this is a
-no-op for them -- their hosted context windows are large enough that it's never been an
-issue in practice.
+How many reviews make it into a side's prompt is governed purely by a character budget,
+not a fixed count -- so `review_count` in Settings (how many reviews
+`steam_reviews_sample` fetches in the first place) is what actually controls how much
+gets analyzed. For `ollama`, that budget is computed from `num_ctx` -- a conservative
+chars-per-token estimate, less `THEMES_PROMPT_OVERHEAD_TOKENS` reserved for the system
+prompt, the schema, and the model's own reply. Without this, a game whose reviews happen
+to be unusually long (e.g. long BBCode-formatted "Pros/Cons" lists) could build a prompt
+that overflows the model's context outright -- Ollama rejects that with an HTTP 400
+("request exceeds the available context size") rather than just answering sloppily,
+which surfaced as "Could not load game" with no further explanation. Other providers
+don't set `num_ctx`, so they fall back to a generous fixed budget
+(`THEMES_DEFAULT_CHAR_BUDGET`) instead -- large enough that their big hosted context
+windows are never the limiting factor, but still a hard ceiling so a high `review_count`
+can't build an unbounded, runaway-cost prompt.
 
 ```json
 { "liked":    [ { "id": "art",      "label": "Art style & lighting" } ] }
@@ -157,18 +201,62 @@ into the review prompt (see 4.3), as a `- <question> <answer>` line each, under 
 about my experience:" heading that's left out entirely if nothing was answered.
 
 ### 4.3 Review generation
-Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, length, tone, vocabulary.
+Input: game name, **only the checked labels**, any answered follow-up questions, the user's free-text notes, recommend yes/no, an optional 1-10 rating, an optional playtime (see 3.5), length, tone, vocabulary.
 System prompt rules:
 - Write in first person as a regular player.
 - Use only the provided points below. Never invent or add any extra like, dislike,
   experience, number, or feature -- not even ones that sound typical for this kind of
   game (worded this strongly because a local model otherwise did exactly that: added an
   unchecked, genre-typical complaint on its own).
+- Playtime: when available (`playtime_hours > 0`), one extra rule tells the model it *may*
+  work it in naturally (e.g. "After 120 hours...") but never force it in and never mention
+  it twice -- unlike the no-invented-content rule above, this one's explicitly optional,
+  since forcing every single review to open with a playtime callout would get repetitive
+  fast.
 - Short = 2–4 sentences. Medium = 1–2 paragraphs. Long = 3–4 paragraphs.
 - Plain text, no headings, no emojis unless the tone is "enthusiastic". End with a one-line verdict.
+- Rating: a new optional step right after Recommend, in both the TUI and `--plain` --
+  blank/Enter skips it (same "Enter skips" convention used elsewhere), otherwise 1-10,
+  clamped rather than rejected if someone types e.g. "99". When given, one extra system
+  rule tells the model to work "(N/10)" into the closing verdict line exactly as given --
+  phrased as strongly as the "never invent a number" rule above, for the same reason: it's
+  still a number in the prompt, and the model shouldn't feel free to round it or restate
+  it differently.
 - Vocabulary: "normal" adds no extra line; "simple" adds one telling the model to use
   plain, everyday words and avoid fancy or technical vocabulary. Picked per review, right
   after length, in both the TUI and `--plain`; defaults from `[review] default_vocab`.
+
+**Format and spoilers.** Right after Vocab, a "Format: (p)lain / (b)bcode" step, then an
+always-asked, optional "Spoiler details" step -- a separate text field, not folded into
+the main notes. Spoiler text is deliberately never sent to the model at all: it's
+appended to the generated text as-is, after generation (`review_append_spoiler()`, pure
+and unit-tested without a network dependency), wrapped in `[spoiler][/spoiler]` when the
+format is bbcode or under a plain "Spoilers:" label otherwise. Two alternatives were
+considered and rejected: letting the model guess what counts as a spoiler (unpredictable,
+both over- and under-marks things), and inline markers the model is told to preserve
+verbatim (fragile on a small local model, which could still paraphrase or drop the
+marker). Appending after the fact sidesteps both failure modes entirely, at the cost of
+spoiler content always landing at the end rather than inline with the surrounding prose.
+The format choice only affects this one block -- the main review body's wording is the
+same either way; BBCode markup elsewhere (bold, lists, ...) was explicitly out of scope.
+
+The Spoiler step also pre-fills itself with a best guess (`core/spoiler_predict.c`, same
+prompt/parse/retry shape as `core/followup.c`): one extra, best-effort LLM call that
+quotes verbatim from the notes and follow-up answers whatever sounds like a genuine plot
+spoiler, or `{"spoiler": ""}` when nothing does. This is deliberately *not* the same
+thing as the "let the model guess" option rejected above -- the guess never ships on its
+own; it only pre-fills the field the player already edits or clears before Ctrl+S/Enter,
+the same as if they'd typed it themselves. Only triggered when the field is still empty,
+so it never clobbers an answer already typed (including after going back through `o`),
+and a failure just leaves the field blank rather than surfacing an error for something
+that was never required. Runs on its own loading screen (`TUI_SCREEN_LOADING_SPOILER_
+PREDICT`), the same pattern as the follow-up questions' loading screen.
+
+A plain keyword match was tried first (no network call, no new loading screen) but
+turned out too narrow in practice: real notes describing a specific plot point rarely
+contain any of a fixed list of generic words like "ending" or "twist", so it almost never
+fired. The LLM call costs one extra round trip but actually generalizes to whatever the
+player happened to write.
 
 From the Result screen, the TUI also offers to go back through Liked/Disliked/Notes/
 Options with everything from last time still in place (`o`) -- for fixing a wrong
@@ -196,12 +284,37 @@ typedef struct {
                           const char *system, const char *user,
                           const char *json_schema,
                           strbuf *out, err_t *err);
+    int (*unload)(const llm_cfg *cfg, err_t *err);       /* optional; NULL if nothing to free */
 } llm_provider;
 ```
 
-- **anthropic**: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key`, `anthropic-version: 2023-06-01`, read `content[0].text`. No `complete_json`.
-- **openai** (compatible): `POST <base_url>/chat/completions`, `Authorization: Bearer`, read `choices[0].message.content`. Covers OpenAI, LM Studio, OpenRouter, and others. No `complete_json`. Since LM Studio and other local servers are a primary use of this provider, it uses the same longer (180s) request timeout as `ollama` rather than the shared 30s default -- confirmed necessary against a real LM Studio instance, where the default timed out.
-- **ollama**: Ollama's *native* API, not the OpenAI-compatible one -- `POST <base_url>/api/chat` (default `http://localhost:11434`), `stream: false`, `think: false` (skips `<think>` stripping for reasoning-style models), an `options.num_ctx` from config, and `complete_json` sets `format` to the call's JSON schema so most parse failures never happen server-side. Local CPU inference can be slow, so this provider uses a longer (180s) request timeout than the shared default.
+- **anthropic**: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key`, `anthropic-version: 2023-06-01`, read `content[0].text`. No `complete_json`, no `unload` (nothing server-side to free on a hosted API).
+- **openai** (compatible): `POST <base_url>/chat/completions`, `Authorization: Bearer`, read `choices[0].message.content`. Covers OpenAI, LM Studio, OpenRouter, and others. No `complete_json`, no `unload`. Since LM Studio and other local servers are a primary use of this provider, it uses the same longer (180s) request timeout as `ollama` rather than the shared 30s default -- confirmed necessary against a real LM Studio instance, where the default timed out.
+- **ollama**: Ollama's *native* API, not the OpenAI-compatible one -- `POST <base_url>/api/chat` (default `http://localhost:11434`), `stream: false`, `think: false` (skips `<think>` stripping for reasoning-style models), an `options.num_ctx` from config, and `complete_json` sets `format` to the call's JSON schema so most parse failures never happen server-side. Local CPU inference can be slow, so this provider uses a longer (180s) request timeout than the shared default. The default provider as of M6 -- it needs no API key and runs fully locally, which fits the project's "just works" goal better than requiring a hosted key up front; see `docs/PROVIDERS.md` for a recommended-models shortlist.
+
+`unload` (ollama only) sends `POST <base_url>/api/chat` with an empty `messages` array and
+`keep_alive: 0` -- a keep_alive update, not a new completion, so it costs no tokens and
+generates nothing. `pipeline_unload_llm_model()` calls it (best-effort; a failure is just
+logged) right after a review is actually generated, in both `main.c` and `tui/app.c`'s
+`bg_generate_review_thread` -- not after the intermediate calls (themes, follow-up,
+spoiler prediction), so those still benefit from the model staying loaded between calls
+within one run. Verified manually against a real local Ollama server: `ollama ps` showed
+the model loaded after a normal chat call, then gone (with `done_reason: "unload"` in the
+response) immediately after sending the same payload this function sends.
+
+### 4.5 Testing a provider/model before saving
+The Settings screen (**F2**) can test its *staged* (not-yet-saved) provider/model/
+base_url/num_ctx with **Ctrl+T**: `pipeline_test_llm_connection()` builds a throwaway
+`config_t` with those four fields substituted in (Anthropic/OpenAI keys still come from
+the real `cfg`, since Settings never stages those -- they're env-only), resolves it
+through the same `pipeline_resolve_llm()` used everywhere else (so a missing key fails
+exactly the same way it would for a real review), then makes one minimal real
+`complete()` call ("reply with just the word OK") to confirm the provider/model/endpoint
+combination actually works end to end, not just that a key is present. Runs on its own
+loading screen (`TUI_SCREEN_LOADING_TEST_CONNECTION`) so a slow or unreachable server
+doesn't freeze the UI, same spinner-thread pattern as every other background call. The
+result (success with the model's reply, or the actual error) lands in the status bar
+back on Settings -- it never touches `cfg` or `config.ini` itself.
 
 ---
 
@@ -218,10 +331,12 @@ src/
     text.c/.h       clip, trim, strip BBCode/HTML entities, word-wrap
     json_fence.c/.h strip a ```[json] code fence an LLM wrapped its answer in,
                     shared by every module that parses a raw LLM response as JSON
+    secret_crypto.c/.h  encrypt/decrypt a config.ini secret at rest (7.1); vendored
+                    ChaCha20 + a machine-local key file, no external crypto dependency
   net/
     http.c/.h       libcurl wrapper: GET/POST JSON, retries, timeouts
   steam/
-    steam.c/.h      search, appdetails, reviews (pagination)
+    steam.c/.h      search, appdetails, reviews (pagination), owned-games library (3.6)
     cache.c/.h      JSON files under ~/.cache/steamscribe/<appid>/
   llm/
     llm.c/.h        provider registry
@@ -241,9 +356,19 @@ src/
                     shares one text_field_t { buf, cap, *len, *cursor } and a handful of
                     editing primitives (insert/backspace/delete-forward/left/right/home/
                     end at an arbitrary cursor position, not just the end) -- see 5.5.
-                    Includes a Settings screen (F2) for provider/model/base_url/num_ctx/
-                    review-count, staged in app_state_t and only written into the live
-                    config_t (then config_save()'d) on Ctrl+S; Esc discards the edit
+                    Includes a Library screen (F3, or `n` from Result) for browsing your
+                    own owned games by playtime (3.6) instead of typing a name, and a
+                    Settings screen (F2) covering every config.ini setting
+                    (provider/model/base_url/num_ctx, steam language/review-count/cache-
+                    ttl/id/api-key, review length/tone/vocab defaults) except the
+                    Anthropic/OpenAI keys, which stay env-only -- staged in app_state_t
+                    and only written into the live config_t (then config_save()'d) on
+                    Ctrl+S; Esc discards the edit. The Steam key field is masked on
+                    screen except while actively being edited, and only overwrites
+                    config_t's copy (clearing its env-sourced flag) if its staging buffer
+                    actually differs from the live value when you save -- so leaving it
+                    alone while editing something else never copies an env-sourced key
+                    into config.ini
     keys.h          the handful of termbox2 TB_KEY_* values state.c reacts to, duplicated
                     as plain macros so state.c doesn't need to include termbox2.h
     app.c/.h        termbox2 init/shutdown (incl. signal handling) and the main loop:
@@ -297,6 +422,8 @@ yet -- so this works without making the arena allocator itself thread-safe.
 
 ### 5.4 Errors
 Functions return `int` (0 = ok) and fill an `err_t { int code; char msg[256]; }`. The TUI shows `msg` in a status bar. `--verbose` writes HTTP and LLM traffic to `~/.cache/steamscribe/debug.log`, with API keys redacted.
+
+`net/http.c` is the one place every Steam and LLM request goes through, so its error wording is where "offline", "rate-limited" and "bad/missing key" become friendly for every caller at once, instead of each one repeating the same status-code checks: a curl-level failure that specifically looks like no connectivity (couldn't resolve host, couldn't connect, timed out, TLS handshake failed) says so plainly rather than quoting curl's own phrasing; HTTP 401/403 says to check the API key; 429 says to wait and retry (on top of the existing automatic retry-with-backoff for 429/5xx); 5xx says the server's having trouble. A missing Anthropic/OpenAI key is caught even earlier, in `pipeline_resolve_llm()`, before any request is sent -- except openai against a local `base_url` (LM Studio etc.), which never needed a key to begin with.
 
 Whatever's currently in the status bar is also flushed to stderr once the terminal tears
 down -- on a normal quit, on Ctrl+C mid-loading screen, and on a fatal signal (`SIGINT`/
@@ -362,7 +489,7 @@ cmake_minimum_required(VERSION 3.20)
 # newer CMake refuses outright; this keeps those configuring.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-project(steamscribe VERSION 0.1.0 LANGUAGES C)
+project(steamscribe VERSION 1.0.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -423,8 +550,38 @@ lands with the TUI in M4.)
 | `~/.cache/steamscribe/<appid>/reviews.json`  | sampled reviews + fetch time    |
 | `~/.cache/steamscribe/<appid>/themes.json`   | extracted themes (saves an LLM call) |
 | `~/.local/share/steamscribe/reviews/`        | saved generated reviews (`<appid>-<date>.txt`) |
+| `~/.local/share/steamscribe/secret.key`       | machine-local key for secrets stored in config.ini (0600, see 7.1) |
 
 Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries expire after `cache_ttl_hours`.
+
+### 7.1 Secrets at rest
+
+`[steam] steam_api_key` is the one config.ini value allowed to be a real secret (unlike
+`steam_id`, which is just a numeric account id). You can paste it in as plain text; on
+the very next launch, `config_load()` notices it isn't already one of this module's own
+encrypted blobs, uses it as-is for that run, and rewrites the file with the encrypted
+form (`util/secret_crypto.c`) -- so a plaintext key is never left sitting in config.ini
+past the first launch that reads it.
+
+The cipher is ChaCha20 (RFC 8439 block function, confidentiality only -- no Poly1305,
+since this isn't authenticating a network message, just obscuring a value at rest) under
+a fresh random nonce per encryption, vendored directly rather than pulled in as a
+dependency (GOBLIN has base64/md5/hashing but no general-purpose cipher, and a real crypto
+library felt heavier than this project's existing dependency footprint for one encrypted
+config value). The key is random, generated once into `secret.key` (0600, created with
+`O_EXCL` so a concurrent run can't race it into regenerating -- and overwriting -- an
+existing key, which would make every value it had encrypted undecryptable) under
+`goblin_appdir_data_dir()`, and reused for as long as that file exists.
+
+**This is explicitly not a defense against someone with access to this machine's
+filesystem** -- the key sits right next to the config file it decrypts, unprotected by
+any passphrase, so anyone who can read one can read the other. Its only job is to keep
+the key out of config.ini as plain text, so it isn't exposed by a casual `grep`, a pasted
+bug report, or an accidental `git add` of a dotfiles repo -- not to withstand a
+determined local attacker. `STEAM_API_KEY` (env) sidesteps this file entirely and takes
+priority when set; `config_t.steam_api_key_from_env` tracks which source this run's value
+came from, purely so `config_save()` (also used by the TUI Settings screen) knows never
+to copy an env-sourced key into the file just because some unrelated setting changed.
 
 ---
 
@@ -433,7 +590,10 @@ Respect `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_DATA_HOME`. Cache entries e
 - **Unit:** `text.c`, `strbuf`, theme JSON parsing, prompt building (golden strings). Use CTest with a tiny assert macro, no framework needed.
 - **Fixtures:** saved Steam JSON responses in `tests/fixtures/` so tests run offline.
 - **Fake LLM provider:** `provider = fake` returns canned JSON or text, so you can test the full pipeline without an API key.
+- **`test_pipeline`:** `pipeline_resolve_llm()`'s provider/API-key resolution -- a missing key fails fast for anthropic and for openai against the real API, but not for openai against a local `base_url`, since that's the documented no-key case.
+- **`test_secret_crypto`:** the ChaCha20 encrypt/decrypt round trip (including against a fixed key, so it doesn't depend on `/dev/urandom` behaving any particular way), that two encryptions of the same plaintext differ (fresh nonce), and that `secret_crypto_load_or_create_key()` is idempotent (isolated via `XDG_DATA_HOME`, same technique `test_config` already uses for `XDG_CONFIG_HOME`).
 - **Sanitizers:** `-DSANITIZE=ON` builds with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; CI runs a separate `sanitize` job with it (pulled forward from M5).
+- **CI matrix:** the main `build` job in `.github/workflows/ci.yml` runs on both `ubuntu-latest` and `macos-latest`; `sanitize` stays Linux-only. `.github/workflows/release.yml` (M6) builds + tests + packages both platforms again on every push to `master` and republishes them as a rolling `continuous` pre-release -- see that file's own header comment for why it isn't a real tagged release yet.
 
 ---
 

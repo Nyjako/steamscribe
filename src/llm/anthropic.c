@@ -76,4 +76,4 @@ static int anthropic_complete(const llm_cfg_t *cfg, const char *system, const ch
     return 0;
 }
 
-const llm_provider_t llm_provider_anthropic = {"anthropic", anthropic_complete, NULL};
+const llm_provider_t llm_provider_anthropic = {"anthropic", anthropic_complete, NULL, NULL};

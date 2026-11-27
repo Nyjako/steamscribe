@@ -61,11 +61,39 @@ typedef struct steam_reviews_page_t
     int total_negative;
 } steam_reviews_page_t;
 
+/* From IPlayerService/GetOwnedGames, filtered to a single appid.
+ * `found` is false if that appid isn't in the account's owned-games list
+ * at all (never purchased/played, or the profile/game details are
+ * private) -- not an error, just nothing to report. */
+typedef struct steam_playtime_t
+{
+    bool found;
+    int playtime_minutes; /* playtime_forever; valid only if found */
+} steam_playtime_t;
+
+/* One entry of a full IPlayerService/GetOwnedGames listing (include_appinfo=true,
+ * no appids_filter) -- unlike steam_playtime_t this is the whole library, not
+ * one game. */
+typedef struct steam_owned_game_t
+{
+    uint32_t appid;
+    char *name;
+    int playtime_minutes; /* playtime_forever */
+} steam_owned_game_t;
+
+typedef struct steam_library_t
+{
+    steam_owned_game_t *items;
+    size_t count;
+} steam_library_t;
+
 /* Pure parsers: no network, safe to feed fixture JSON in tests. Results
  * (and any strings in them) are allocated from `arena`. */
 int steam_parse_search(arena_t *arena, const char *json_text, steam_search_results_t *out, err_t *err);
 int steam_parse_app_details(arena_t *arena, uint32_t appid, const char *json_text, game_info_t *out, err_t *err);
 int steam_parse_reviews_page(arena_t *arena, const char *json_text, steam_reviews_page_t *out, err_t *err);
+int steam_parse_owned_games(const char *json_text, steam_playtime_t *out, err_t *err);
+int steam_parse_owned_games_list(arena_t *arena, const char *json_text, steam_library_t *out, err_t *err);
 
 /* Network calls. `language` is a Steam store language code, e.g. "english". */
 int steam_search(arena_t *arena, const char *query, const char *language, steam_search_results_t *out, err_t *err);
@@ -77,5 +105,15 @@ int steam_reviews_summary(arena_t *arena, uint32_t appid, const char *language, 
 /* Up to `count` reviews split evenly between positive/negative, cursor-paginated,
  * with very short reviews dropped and long ones clipped. */
 int steam_reviews_sample(arena_t *arena, uint32_t appid, const char *language, size_t count, review_set_t *out, err_t *err);
+
+/* Steam Web API, not the public store API the rest of this file uses --
+ * needs the account's own api_key and steam_id (SteamID64). */
+int steam_fetch_playtime(const char *api_key, const char *steam_id, uint32_t appid, steam_playtime_t *out, err_t *err);
+
+/* The account's full owned-games list (name + playtime_forever for every
+ * game, not just one), sorted most-played first -- lets a player browse
+ * their own library by playtime instead of typing a game name to search
+ * for. Same Steam Web API auth as steam_fetch_playtime. */
+int steam_fetch_library(arena_t *arena, const char *api_key, const char *steam_id, steam_library_t *out, err_t *err);
 
 #endif

@@ -28,6 +28,9 @@ static config_t make_fake_config(arena_t *arena)
     cfg.steam_language = arena_strdup(arena, "english");
     cfg.steam_review_count = 200;
     cfg.steam_cache_ttl_hours = 24;
+    cfg.steam_id = arena_strdup(arena, "");
+    cfg.steam_api_key = arena_strdup(arena, "");
+    cfg.steam_api_key_from_env = false;
     cfg.review_default_length = arena_strdup(arena, "short");
     cfg.review_default_tone = arena_strdup(arena, "casual");
     cfg.review_default_vocab = arena_strdup(arena, "normal");
@@ -184,6 +187,134 @@ static int test_select_esc_goes_back_to_search(void)
     items[1].name = arena_strdup(&arena, "B");
     steam_search_results_t results = {items, 2};
     tui_apply_search_results(&state, results);
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_f3_loads_library_from_search(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_F3) == TUI_ACTION_LOAD_LIBRARY);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_LIBRARY);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_library_loaded_empty_and_many(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    steam_library_t empty = {0};
+    tui_apply_library_loaded(&state, empty);
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(strstr(state.status, "empty") != NULL);
+
+    steam_owned_game_t items[2];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    items[1].appid = 20;
+    items[1].name = arena_strdup(&arena, "B");
+    items[1].playtime_minutes = 10;
+    steam_library_t library = {items, 2};
+    tui_apply_library_loaded(&state, library);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIBRARY);
+    TEST_ASSERT(state.library_cursor == 0);
+    TEST_ASSERT(state.library.count == 2);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_library_load_failed_lands_on_search_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    tui_apply_library_load_failed(&state, "boom");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
+    TEST_ASSERT(strstr(state.status, "boom") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_library_screen_navigation(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    steam_owned_game_t items[3];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    items[1].appid = 20;
+    items[1].name = arena_strdup(&arena, "B");
+    items[1].playtime_minutes = 100;
+    items[2].appid = 30;
+    items[2].name = arena_strdup(&arena, "C");
+    items[2].playtime_minutes = 10;
+    steam_library_t library = {items, 3};
+    tui_apply_library_loaded(&state, library);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIBRARY);
+
+    tui_handle_key(&state, 'k', 0); /* up at the top is a no-op */
+    TEST_ASSERT(state.library_cursor == 0);
+
+    tui_handle_key(&state, 'j', 0);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.library_cursor == 2);
+
+    tui_handle_key(&state, 'j', 0); /* down at the bottom is a no-op */
+    TEST_ASSERT(state.library_cursor == 2);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_LOAD_GAME);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_GAME);
+    TEST_ASSERT(state.appid == 30);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_library_esc_goes_back_to_search(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "x", 0);
+
+    steam_owned_game_t items[1];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    steam_library_t library = {items, 1};
+    tui_apply_library_loaded(&state, library);
 
     tui_handle_key(&state, 0, TUI_KEY_ESC);
     TEST_ASSERT(state.screen == TUI_SCREEN_SEARCH);
@@ -497,15 +628,67 @@ static int test_notes_flow_to_generate_review(void)
 
     tui_handle_key(&state, 'y', 0);
     TEST_ASSERT(state.recommend == true);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_RATING);
+
+    tui_handle_key(&state, '8', 0);
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.rating == 8);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
 
     TEST_ASSERT(tui_handle_key(&state, 'm', 0) == TUI_ACTION_NONE);
     TEST_ASSERT(state.length == REVIEW_LEN_MEDIUM);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_VOCAB);
 
-    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_GENERATE_REVIEW);
+    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_NONE);
     TEST_ASSERT(state.vocab == REVIEW_VOCAB_SIMPLE);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FORMAT);
+
+    TEST_ASSERT(tui_handle_key(&state, 'b', 0) == TUI_ACTION_PREDICT_SPOILER);
+    TEST_ASSERT(state.bbcode == true);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_SPOILER_PREDICT);
+
+    /* best-effort: a failed/empty guess just leaves the step blank */
+    tui_apply_spoiler_predict_failed(&state);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+
+    /* a blank spoiler field just means "no spoiler" -- Enter still advances */
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_GENERATE_REVIEW);
     TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_REVIEW);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_rating_step_esc_and_blank_skip(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_RATING;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_RECOMMEND);
+
+    /* a blank rating just means "no rating given" -- Enter still advances */
+    state.notes_step = TUI_NOTES_STEP_RATING;
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.rating == 0);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
+
+    /* a rating above 10 is clamped rather than rejected outright */
+    state.notes_step = TUI_NOTES_STEP_RATING;
+    state.rating_input[0] = '\0';
+    state.rating_input_len = 0;
+    state.rating_input_cursor = 0;
+    tui_handle_key(&state, '9', 0);
+    tui_handle_key(&state, '9', 0);
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.rating == 10);
 
     arena_free(&arena);
     return 0;
@@ -525,6 +708,144 @@ static int test_vocab_step_esc_goes_back_to_length(void)
 
     tui_handle_key(&state, 0, TUI_KEY_ESC);
     TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_LENGTH);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_format_step_esc_and_choice(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_FORMAT;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_VOCAB);
+
+    state.notes_step = TUI_NOTES_STEP_FORMAT;
+    TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_PREDICT_SPOILER);
+    TEST_ASSERT(state.bbcode == false);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_SPOILER_PREDICT);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_format_step_skips_prediction_when_spoiler_already_typed(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    strcpy(state.spoiler_input, "my own typed spoiler");
+    state.spoiler_input_len = strlen(state.spoiler_input);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_FORMAT;
+    TEST_ASSERT(tui_handle_key(&state, 'p', 0) == TUI_ACTION_NONE);
+
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(strcmp(state.spoiler_input, "my own typed spoiler") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_spoiler_predicted_prefills_the_field(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_spoiler_predicted(&state, "The ending made me cry though.");
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(strcmp(state.spoiler_input, "The ending made me cry though.") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_spoiler_predicted_empty_guess_leaves_field_blank(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_spoiler_predicted(&state, "");
+
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(state.spoiler_input_len == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_spoiler_predict_failed_leaves_field_blank(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_spoiler_predict_failed(&state);
+
+    TEST_ASSERT(state.screen == TUI_SCREEN_NOTES);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+    TEST_ASSERT(state.spoiler_input_len == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_spoiler_step_esc_and_ctrl_s(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    state.screen = TUI_SCREEN_NOTES;
+    state.notes_step = TUI_NOTES_STEP_SPOILER;
+
+    tui_handle_key(&state, 0, TUI_KEY_ESC);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_FORMAT);
+
+    state.notes_step = TUI_NOTES_STEP_SPOILER;
+    tui_handle_key(&state, 't', 0);
+    tui_handle_key(&state, 'w', 0);
+    tui_handle_key(&state, 'i', 0);
+    tui_handle_key(&state, 's', 0);
+    tui_handle_key(&state, 't', 0);
+    TEST_ASSERT(strcmp(state.spoiler_input, "twist") == 0);
+
+    /* once there's content, Enter starts a new line rather than submitting */
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_ENTER) == TUI_ACTION_NONE);
+    TEST_ASSERT(strcmp(state.spoiler_input, "twist\n") == 0);
+    TEST_ASSERT(state.notes_step == TUI_NOTES_STEP_SPOILER);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_GENERATE_REVIEW);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_REVIEW);
 
     arena_free(&arena);
     return 0;
@@ -719,6 +1040,23 @@ static int test_result_screen_copy_action(void)
     return 0;
 }
 
+static int test_result_screen_save_action(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 's', 0) == TUI_ACTION_SAVE_REVIEW);
+    TEST_ASSERT(state.screen == TUI_SCREEN_RESULT); /* app.c handles the actual file write, not state.c */
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_result_screen_change_answers_goes_to_liked(void)
 {
     arena_t arena;
@@ -754,6 +1092,95 @@ static int test_result_screen_regenerate_and_quit(void)
     state.screen = TUI_SCREEN_RESULT;
     TEST_ASSERT(tui_handle_key(&state, 'q', 0) == TUI_ACTION_QUIT);
     TEST_ASSERT(state.screen == TUI_SCREEN_QUIT);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_result_screen_pick_another_game_reuses_cached_library(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    steam_owned_game_t items[1];
+    items[0].appid = 10;
+    items[0].name = arena_strdup(&arena, "A");
+    items[0].playtime_minutes = 500;
+    steam_library_t library = {items, 1};
+    tui_apply_library_loaded(&state, library);
+
+    tui_state_init(&state, &arena, &cfg, NULL, 892970); /* back to a fresh run, library still set below */
+    state.library = library;
+
+    strcpy(state.notes_input, "leftover notes from the last game");
+    state.notes_input_len = strlen(state.notes_input);
+    state.rating = 7;
+    state.recommend = true;
+    strcpy(state.spoiler_input, "leftover spoiler");
+    state.spoiler_input_len = strlen(state.spoiler_input);
+    tui_apply_review_generated(&state, (char *)"a review");
+
+    TEST_ASSERT(tui_handle_key(&state, 'n', 0) == TUI_ACTION_NONE);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIBRARY); /* already fetched -- no need to refetch */
+    TEST_ASSERT(state.library.count == 1); /* kept, not cleared */
+
+    TEST_ASSERT(state.notes_input_len == 0);
+    TEST_ASSERT(state.notes_input[0] == '\0');
+    TEST_ASSERT(state.rating == 0);
+    TEST_ASSERT(state.recommend == false);
+    TEST_ASSERT(state.spoiler_input_len == 0);
+    TEST_ASSERT(state.spoiler_input[0] == '\0');
+    TEST_ASSERT(state.review_text == NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_result_screen_pick_another_game_fetches_library_when_not_cached(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    tui_apply_review_generated(&state, (char *)"a review");
+    TEST_ASSERT(tui_handle_key(&state, 'n', 0) == TUI_ACTION_LOAD_LIBRARY);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_LIBRARY);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_f3_from_mid_flow_resets_in_progress_review(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 892970);
+
+    game_info_t game;
+    memset(&game, 0, sizeof(game));
+    game.appid = 892970;
+    game.name = arena_strdup(&arena, "Valheim");
+
+    tui_apply_game_loaded(&state, 892970, game, make_game_themes(&arena));
+    TEST_ASSERT(state.screen == TUI_SCREEN_LIKED);
+
+    strcpy(state.notes_input, "a draft note typed before switching to the library");
+    state.notes_input_len = strlen(state.notes_input);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_F3) == TUI_ACTION_LOAD_LIBRARY);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_LIBRARY);
+    TEST_ASSERT(state.notes_input_len == 0);
+    TEST_ASSERT(state.notes_input[0] == '\0');
 
     arena_free(&arena);
     return 0;
@@ -810,6 +1237,13 @@ static int test_f2_opens_settings_prefilled_from_cfg(void)
     TEST_ASSERT(strcmp(state.settings_base_url, "") == 0);
     TEST_ASSERT(strcmp(state.settings_num_ctx, "8192") == 0);
     TEST_ASSERT(strcmp(state.settings_review_count, "200") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_language, "english") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_cache_ttl_hours, "24") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_id, "") == 0);
+    TEST_ASSERT(strcmp(state.settings_steam_api_key, "") == 0);
+    TEST_ASSERT(state.settings_review_length_index == 0); /* "short" */
+    TEST_ASSERT(state.settings_review_tone_index == 0);   /* "casual" */
+    TEST_ASSERT(state.settings_review_vocab_index == 0);  /* "normal" */
     /* cursor starts at the end of the pre-filled text, like any editor */
     TEST_ASSERT(state.settings_model_cursor == state.settings_model_len);
 
@@ -844,10 +1278,24 @@ static int test_settings_field_navigation_and_provider_cycling(void)
     TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
     tui_handle_key(&state, 'j', 0);
     TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_LANGUAGE);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_ID);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_API_KEY);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE);
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB);
     tui_handle_key(&state, 'j', 0); /* bottom: no-op */
-    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_COUNT);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB);
     tui_handle_key(&state, 'k', 0);
-    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_NUM_CTX);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE);
 
     arena_free(&arena);
     return 0;
@@ -1009,6 +1457,70 @@ static int test_settings_ctrl_s_commits_to_cfg_and_returns_action(void)
     return 0;
 }
 
+static int test_settings_ctrl_t_tests_the_staged_values_before_saving(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "valheim", 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    tui_handle_key(&state, 'j', 0);          /* -> Model */
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* edit */
+    tui_handle_key(&state, 'x', 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* confirm edit, still not saved to cfg */
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_T) == TUI_ACTION_TEST_LLM_CONNECTION);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_TEST_CONNECTION);
+    TEST_ASSERT(strstr(state.settings_model, "x") != NULL); /* staged edit survives into the test */
+    TEST_ASSERT(strcmp(cfg.llm_model, "x") != 0);            /* but cfg itself is untouched */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_test_connection_ok_returns_to_settings_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 0, TUI_KEY_CTRL_T);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_TEST_CONNECTION);
+
+    tui_apply_test_connection_ok(&state, "OK");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS);
+    TEST_ASSERT(strstr(state.status, "OK") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_test_connection_failed_returns_to_settings_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 0, TUI_KEY_CTRL_T);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_TEST_CONNECTION);
+
+    tui_apply_test_connection_failed(&state, "connection refused");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS);
+    TEST_ASSERT(strstr(state.status, "connection refused") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_settings_save_failed_stays_on_settings_with_status(void)
 {
     arena_t arena;
@@ -1073,6 +1585,128 @@ static int test_settings_review_count_field_edits_and_commits(void)
 
     TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
     TEST_ASSERT(cfg.steam_review_count == 50);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_new_steam_and_review_fields_edit_and_commit(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    for (int i = 0; i < 5; i++) tui_handle_key(&state, 'j', 0); /* -> Steam language */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_LANGUAGE);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 'p', 0);
+    tui_handle_key(&state, 'o', 0);
+    tui_handle_key(&state, 'l', 0);
+    tui_handle_key(&state, 'i', 0);
+    tui_handle_key(&state, 's', 0);
+    tui_handle_key(&state, 'h', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_language, "polish") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Cache TTL hours */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_CACHE_TTL_HOURS);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, 0, TUI_KEY_BACKSPACE);
+    tui_handle_key(&state, '4', 0);
+    tui_handle_key(&state, '8', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_cache_ttl_hours, "48") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Steam ID */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_ID);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 'a', 0); /* rejected: not a digit */
+    tui_handle_key(&state, '7', 0);
+    tui_handle_key(&state, '6', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_id, "76") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Steam API key */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_STEAM_API_KEY);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 'A', 0);
+    tui_handle_key(&state, 'C', 0);
+    tui_handle_key(&state, '1', 0);
+    TEST_ASSERT(strcmp(state.settings_steam_api_key, "AC1") == 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    tui_handle_key(&state, 'j', 0); /* -> Length (short -> medium) */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_LENGTH);
+    tui_handle_key(&state, 'l', 0);
+    TEST_ASSERT(state.settings_review_length_index == 1);
+
+    tui_handle_key(&state, 'j', 0); /* -> Tone (casual -> neutral) */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE);
+    tui_handle_key(&state, 'l', 0);
+    TEST_ASSERT(state.settings_review_tone_index == 1);
+
+    tui_handle_key(&state, 'j', 0); /* -> Vocab (normal -> simple) */
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB);
+    tui_handle_key(&state, 'l', 0);
+    TEST_ASSERT(state.settings_review_vocab_index == 1);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
+
+    TEST_ASSERT(strcmp(cfg.steam_language, "polish") == 0);
+    TEST_ASSERT(cfg.steam_cache_ttl_hours == 48);
+    TEST_ASSERT(strcmp(cfg.steam_id, "76") == 0);
+    TEST_ASSERT(strcmp(cfg.steam_api_key, "AC1") == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == false);
+    TEST_ASSERT(strcmp(cfg.review_default_length, "medium") == 0);
+    TEST_ASSERT(strcmp(cfg.review_default_tone, "neutral") == 0);
+    TEST_ASSERT(strcmp(cfg.review_default_vocab, "simple") == 0);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_settings_unedited_steam_api_key_keeps_its_env_source(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    cfg.steam_api_key = arena_strdup(&arena, "env-sourced-key");
+    cfg.steam_api_key_from_env = true;
+
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    /* pre-filled from cfg, same as it would be either way */
+    TEST_ASSERT(strcmp(state.settings_steam_api_key, "env-sourced-key") == 0);
+
+    /* edit something unrelated (Model), then save, without ever touching
+     * the key field */
+    tui_handle_key(&state, 'j', 0);
+    TEST_ASSERT(state.settings_field == TUI_SETTINGS_FIELD_MODEL);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+    tui_handle_key(&state, 'x', 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER);
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_S) == TUI_ACTION_SAVE_SETTINGS);
+
+    /* the key and its env provenance are untouched -- never silently
+     * copied into config.ini just because some other field was saved */
+    TEST_ASSERT(strcmp(cfg.steam_api_key, "env-sourced-key") == 0);
+    TEST_ASSERT(cfg.steam_api_key_from_env == true);
 
     arena_free(&arena);
     return 0;
@@ -1145,8 +1779,19 @@ int main(void)
     if (test_apply_search_results_zero_one_many()) return 1;
     if (test_select_screen_navigation()) return 1;
     if (test_select_esc_goes_back_to_search()) return 1;
+    if (test_f3_loads_library_from_search()) return 1;
+    if (test_apply_library_loaded_empty_and_many()) return 1;
+    if (test_apply_library_load_failed_lands_on_search_with_status()) return 1;
+    if (test_library_screen_navigation()) return 1;
+    if (test_library_esc_goes_back_to_search()) return 1;
     if (test_game_loaded_lands_on_liked()) return 1;
     if (test_checklist_toggle_and_navigate()) return 1;
+    if (test_format_step_esc_and_choice()) return 1;
+    if (test_format_step_skips_prediction_when_spoiler_already_typed()) return 1;
+    if (test_apply_spoiler_predicted_prefills_the_field()) return 1;
+    if (test_apply_spoiler_predicted_empty_guess_leaves_field_blank()) return 1;
+    if (test_apply_spoiler_predict_failed_leaves_field_blank()) return 1;
+    if (test_spoiler_step_esc_and_ctrl_s()) return 1;
     if (test_checklist_add_custom_item()) return 1;
     if (test_checklist_add_custom_item_esc_cancels()) return 1;
     if (test_checklist_add_blank_item_is_noop()) return 1;
@@ -1161,11 +1806,16 @@ int main(void)
     if (test_notes_text_esc_returns_to_last_followup_question_when_any()) return 1;
     if (test_notes_text_esc_goes_to_disliked_when_no_followup()) return 1;
     if (test_notes_flow_to_generate_review()) return 1;
+    if (test_rating_step_esc_and_blank_skip()) return 1;
     if (test_vocab_step_esc_goes_back_to_length()) return 1;
     if (test_result_screen_edit_action()) return 1;
     if (test_result_screen_copy_action()) return 1;
+    if (test_result_screen_save_action()) return 1;
     if (test_result_screen_change_answers_goes_to_liked()) return 1;
     if (test_result_screen_regenerate_and_quit()) return 1;
+    if (test_result_screen_pick_another_game_reuses_cached_library()) return 1;
+    if (test_result_screen_pick_another_game_fetches_library_when_not_cached()) return 1;
+    if (test_f3_from_mid_flow_resets_in_progress_review()) return 1;
     if (test_ctrl_c_quits_from_any_screen()) return 1;
     if (test_review_failed_lands_on_result_with_status()) return 1;
     if (test_f2_opens_settings_prefilled_from_cfg()) return 1;
@@ -1175,9 +1825,14 @@ int main(void)
     if (test_settings_esc_while_editing_reverts_field()) return 1;
     if (test_settings_esc_in_nav_mode_discards_and_returns()) return 1;
     if (test_settings_ctrl_s_commits_to_cfg_and_returns_action()) return 1;
+    if (test_settings_ctrl_t_tests_the_staged_values_before_saving()) return 1;
+    if (test_apply_test_connection_ok_returns_to_settings_with_status()) return 1;
+    if (test_apply_test_connection_failed_returns_to_settings_with_status()) return 1;
     if (test_settings_save_failed_stays_on_settings_with_status()) return 1;
     if (test_settings_q_quits_in_nav_mode()) return 1;
     if (test_settings_review_count_field_edits_and_commits()) return 1;
+    if (test_settings_new_steam_and_review_fields_edit_and_commit()) return 1;
+    if (test_settings_unedited_steam_api_key_keeps_its_env_source()) return 1;
     if (test_text_field_arrow_keys_edit_in_the_middle()) return 1;
 
     printf("all tests passed\n");

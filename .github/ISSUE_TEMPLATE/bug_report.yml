@@ -1,0 +1,82 @@
+name: Bug report
+description: Something isn't working the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. The more of the below you can fill in, the faster it
+        is to track down -- but partial reports are still welcome.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: As exactly as you can -- a specific game name/appid, which screen/command, what you typed.
+      placeholder: |
+        1. steamscribe (or: steamscribe <game name>)
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: steamscribe version
+      description: Output of `steamscribe --version`
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: LLM provider
+      options:
+        - ollama (local)
+        - openai (hosted)
+        - openai-compatible (local server, e.g. LM Studio)
+        - anthropic
+        - not applicable / not sure
+    validations:
+      required: false
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows (WSL)
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug_log
+    attributes:
+      label: Debug log (if applicable)
+      description: >
+        Re-run with `--verbose` to write a log of HTTP/LLM lifecycle events (cache
+        hits/misses, URLs fetched, provider/model used -- API keys are redacted) to
+        `~/.cache/steamscribe/debug.log`. Paste the relevant lines here if the bug
+        involves a failed Steam/LLM call.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and didn't find this one already reported
+          required: true
