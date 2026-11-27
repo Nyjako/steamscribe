@@ -132,7 +132,12 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
       GitHub issue templates (bug report / feature request, as issue forms under
       `.github/ISSUE_TEMPLATE/`) -- linked from the README.
 
-**Done when:** **v1.0** tagged with downloadable binaries.
+**Done when:** **v1.0** tagged with downloadable binaries. ✅ Tagged as `v1.0.0`
+(semver-complete form of "v1.0") at
+[github.com/Nyjako/steamscribe/releases/tag/v1.0.0](https://github.com/Nyjako/steamscribe/releases/tag/v1.0.0),
+with Linux x86_64 and macOS arm64 binaries attached via `release.yml`'s tagged-release
+path -- the first real exercise of that path (the rolling `continuous` pre-release had
+already been verified working on the preceding plain push to `master`).
 
 ---
 
