@@ -110,6 +110,86 @@ static int test_unknown_provider_errors(void)
     return 0;
 }
 
+static int g_fake_unload_calls = 0;
+static int g_fake_unload_rc = 0;
+
+static int fake_unload(const llm_cfg_t *cfg, err_t *err)
+{
+    (void)cfg;
+    (void)err;
+    g_fake_unload_calls++;
+    return g_fake_unload_rc;
+}
+
+static int test_unload_llm_model_calls_through_when_supported(void)
+{
+    g_fake_unload_calls = 0;
+    g_fake_unload_rc = 0;
+
+    llm_provider_t provider = {"fake-with-unload", NULL, NULL, fake_unload};
+    llm_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.model = "some-model";
+
+    pipeline_unload_llm_model(&provider, &cfg);
+    TEST_ASSERT(g_fake_unload_calls == 1);
+    return 0;
+}
+
+static int test_unload_llm_model_is_a_noop_when_unsupported(void)
+{
+    g_fake_unload_calls = 0;
+
+    llm_provider_t provider = {"fake-without-unload", NULL, NULL, NULL};
+    llm_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.model = "some-model";
+
+    pipeline_unload_llm_model(&provider, &cfg); /* must not crash, must not call fake_unload */
+    TEST_ASSERT(g_fake_unload_calls == 0);
+    return 0;
+}
+
+static int test_unload_llm_model_swallows_a_failure(void)
+{
+    g_fake_unload_calls = 0;
+    g_fake_unload_rc = -1;
+
+    llm_provider_t provider = {"fake-with-unload", NULL, NULL, fake_unload};
+    llm_cfg_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.model = "some-model";
+
+    pipeline_unload_llm_model(&provider, &cfg); /* best-effort: a failure is logged, never fatal */
+    TEST_ASSERT(g_fake_unload_calls == 1);
+
+    g_fake_unload_rc = 0;
+    return 0;
+}
+
+static int test_test_llm_connection_uses_staged_values_not_cfg(void)
+{
+    /* cfg itself is configured for ollama (no key needed) -- the staged
+     * provider_name "anthropic" passed in must be what actually gets
+     * tested, not cfg->llm_provider, and anthropic has no key configured
+     * here so it must fail fast before ever reaching the network. */
+    config_t cfg = make_cfg("ollama", "", "", "");
+
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    char *reply = NULL;
+    err_t err;
+    err_clear(&err);
+
+    int rc = pipeline_test_llm_connection(&arena, &cfg, "anthropic", "claude-haiku-5-5", "", 0, &reply, &err);
+    TEST_ASSERT(rc != 0);
+    TEST_ASSERT(strstr(err.msg, "ANTHROPIC_API_KEY") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_fetch_library_without_steam_id_or_key_fails_fast(void)
 {
     config_t cfg = make_cfg("anthropic", "", "sk-test", "");
@@ -138,7 +218,11 @@ int main(void)
     if (test_openai_without_key_against_local_server_is_fine()) return 1;
     if (test_ollama_never_needs_anthropic_or_openai_keys()) return 1;
     if (test_unknown_provider_errors()) return 1;
+    if (test_test_llm_connection_uses_staged_values_not_cfg()) return 1;
     if (test_fetch_library_without_steam_id_or_key_fails_fast()) return 1;
+    if (test_unload_llm_model_calls_through_when_supported()) return 1;
+    if (test_unload_llm_model_is_a_noop_when_unsupported()) return 1;
+    if (test_unload_llm_model_swallows_a_failure()) return 1;
 
     printf("test_pipeline: all tests passed\n");
     return 0;

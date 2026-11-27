@@ -748,6 +748,16 @@ static tui_action_t handle_settings_key(app_state_t *state, uint32_t ch, uint16_
         return TUI_ACTION_SAVE_SETTINGS;
     }
 
+    if (key == TUI_KEY_CTRL_T)
+    {
+        /* Tests the staged provider/model/base_url/num_ctx as they stand
+         * right now, before Ctrl+S commits (or doesn't) them -- so you find
+         * out a typo'd model name or unreachable base_url is wrong before
+         * saving it, not on the next real review. */
+        state->screen = TUI_SCREEN_LOADING_TEST_CONNECTION;
+        return TUI_ACTION_TEST_LLM_CONNECTION;
+    }
+
     if ((key == TUI_KEY_ARROW_UP || ch == 'k') && state->settings_field > 0)
     {
         state->settings_field--;
@@ -962,6 +972,7 @@ tui_action_t tui_handle_key(app_state_t *state, uint32_t ch, uint16_t key)
         case TUI_SCREEN_LOADING_GAME:
         case TUI_SCREEN_LOADING_FOLLOWUP:
         case TUI_SCREEN_LOADING_REVIEW:
+        case TUI_SCREEN_LOADING_TEST_CONNECTION:
         case TUI_SCREEN_QUIT:
         default:
             return TUI_ACTION_NONE;
@@ -1109,4 +1120,16 @@ void tui_apply_settings_saved(app_state_t *state)
 void tui_apply_settings_save_failed(app_state_t *state, const char *message)
 {
     snprintf(state->status, sizeof(state->status), "Could not save settings: %s", message);
+}
+
+void tui_apply_test_connection_ok(app_state_t *state, const char *reply)
+{
+    snprintf(state->status, sizeof(state->status), "Connection OK -- model replied: \"%s\"", reply && reply[0] ? reply : "(empty)");
+    state->screen = TUI_SCREEN_SETTINGS;
+}
+
+void tui_apply_test_connection_failed(app_state_t *state, const char *message)
+{
+    snprintf(state->status, sizeof(state->status), "Connection failed: %s", message);
+    state->screen = TUI_SCREEN_SETTINGS;
 }

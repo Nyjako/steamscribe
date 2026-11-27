@@ -40,6 +40,7 @@ typedef enum
     TUI_SCREEN_LOADING_REVIEW,
     TUI_SCREEN_RESULT,
     TUI_SCREEN_SETTINGS,
+    TUI_SCREEN_LOADING_TEST_CONNECTION,
     TUI_SCREEN_QUIT,
 } tui_screen_t;
 
@@ -83,6 +84,7 @@ typedef enum
     TUI_ACTION_PREDICT_SPOILER, /* best-guess the Spoiler step's pre-fill from state's notes/follow-up answers */
     TUI_ACTION_GENERATE_REVIEW, /* call the LLM with state's notes/recommend/length/tone */
     TUI_ACTION_SAVE_SETTINGS,   /* write state->cfg (already updated) to config.ini */
+    TUI_ACTION_TEST_LLM_CONNECTION, /* try the Settings screen's staged provider/model/base_url/num_ctx with one real call */
     TUI_ACTION_EDIT_REVIEW,     /* open state->review_text in $EDITOR, then update it */
     TUI_ACTION_COPY_REVIEW,     /* copy state->review_text to the clipboard */
     TUI_ACTION_SAVE_REVIEW,     /* write state->review_text to ~/.local/share/steamscribe/reviews/ */
@@ -215,5 +217,7 @@ void tui_apply_review_generated(app_state_t *state, char *review_text);
 void tui_apply_review_failed(app_state_t *state, const char *message);
 void tui_apply_settings_saved(app_state_t *state);
 void tui_apply_settings_save_failed(app_state_t *state, const char *message);
+void tui_apply_test_connection_ok(app_state_t *state, const char *reply);
+void tui_apply_test_connection_failed(app_state_t *state, const char *message);
 
 #endif

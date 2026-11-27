@@ -1,5 +1,8 @@
 # steamscribe
 
+[![CI](https://github.com/Nyjako/steamscribe/actions/workflows/ci.yml/badge.svg)](https://github.com/Nyjako/steamscribe/actions/workflows/ci.yml)
+[![Release](https://github.com/Nyjako/steamscribe/actions/workflows/release.yml/badge.svg)](https://github.com/Nyjako/steamscribe/actions/workflows/release.yml)
+
 > Working name. Rename freely.
 
 A small terminal tool that helps you write a Steam review in your own words.
@@ -61,8 +64,9 @@ asciinema play docs/demo/demo.cast
 - Press **F3** (or `n` from the finished review) to browse your own Steam library sorted by playtime instead of typing a game name -- picking one, finishing a review, then picking another loops right back to the list
 - Edit the generated review in `$EDITOR`, copy it to your clipboard, regenerate, or go back and change your answers -- saving a copy locally is still ahead
 - Full cursor-based text editing everywhere you type -- arrow keys, Home/End, forward delete -- and the notes field is a real multi-line box (Enter for a new line, Ctrl+S to continue)
-- Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models
-- Press **F2** in the TUI to change any setting -- provider/model/base URL/context size, Steam language/review count/cache TTL/SteamID/API key, review length/tone/vocab defaults -- without leaving the app or hand-editing `config.ini`
+- Works with Anthropic, any OpenAI-compatible API (e.g. LM Studio), or Ollama's own native API for local models -- Ollama is the default, since it needs no API key; see [docs/PROVIDERS.md](docs/PROVIDERS.md) for setup and a shortlist of local models that work well
+- Press **F2** in the TUI to change any setting -- provider/model/base URL/context size, Steam language/review count/cache TTL/SteamID/API key, review length/tone/vocab defaults -- without leaving the app or hand-editing `config.ini`. **Ctrl+T** right there tests whatever's currently entered with one real request before you save it
+- Unloads the Ollama model from VRAM/RAM right after generating a review, instead of leaving it reserved until Ollama's own idle timeout
 - Caches Steam data so it doesn't hammer Steam's servers
 
 ## Requirements
@@ -97,17 +101,28 @@ make clean   # removes build/
 
 ## Configuration
 
-Config file: `~/.config/steamscribe/config.ini` (created on first run)
+Config file: `~/.config/steamscribe/config.ini` (created on first run). See
+[docs/PROVIDERS.md](docs/PROVIDERS.md) for how to set up each of the three providers
+(getting an API key, picking a model, pointing at a local server) and a shortlist of local
+models known to work well.
 
 ```ini
 [llm]
-provider = anthropic          ; anthropic | openai | ollama
-model    = claude-haiku-5-5
-; base_url = http://localhost:1234/v1   ; for LM Studio (provider = openai)
-; For a local Ollama model instead, use provider = ollama -- it talks to
-; Ollama's own API (not the OpenAI-compatible one), so it can set num_ctx
-; and force valid JSON output, and defaults to http://localhost:11434.
+; See docs/PROVIDERS.md for how to set each of these up -- ollama is the default since
+; it needs no API key and runs fully locally; swap in one of the commented blocks below
+; for a hosted provider instead.
+provider = ollama              ; anthropic | openai | ollama
+model    = qwen3.5-9b          ; swap for whatever local model you've pulled -- see
+                                ; docs/PROVIDERS.md for a few known to work well
 ; num_ctx  = 8192               ; ollama only -- raise this if reviews get truncated
+; base_url = http://localhost:11434     ; ollama only; this is already the default
+
+; provider = anthropic          ; needs ANTHROPIC_API_KEY in your environment
+; model    = claude-haiku-5-5
+
+; provider = openai             ; needs OPENAI_API_KEY, unless base_url below points
+; model    = gpt-4o-mini        ; at a local OpenAI-compatible server (LM Studio, ...)
+; base_url = http://localhost:1234/v1
 
 [steam]
 language    = english
@@ -126,7 +141,9 @@ default_vocab  = normal       ; normal | simple (plain, everyday words)
 ```
 
 Everything above, including `steam_api_key`, can also be edited from the TUI's Settings
-screen (**F2**) instead of hand-editing the file.
+screen (**F2**) instead of hand-editing the file -- and tested right there with **Ctrl+T**
+before you save, which makes one real request with whatever's currently in the
+provider/model/base URL fields and reports back success or the actual error.
 
 Anthropic/OpenAI keys, read only from the environment (never stored in the config):
 

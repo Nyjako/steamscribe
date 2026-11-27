@@ -437,6 +437,8 @@ static int cmd_interactive(arena_t *arena, const config_t *cfg, uint32_t appid)
         return 1;
     }
 
+    pipeline_unload_llm_model(provider, &llm_cfg);
+
     printf("\n-- Your review ------------------------------\n");
     printf("%s\n", review_text);
     printf("----------------------------------------------\n");

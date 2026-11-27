@@ -19,11 +19,20 @@ typedef int (*llm_complete_fn)(const llm_cfg_t *cfg, const char *system, const c
  * that server-side. */
 typedef int (*llm_complete_json_fn)(const llm_cfg_t *cfg, const char *system, const char *user, const char *json_schema, strbuf_t *out, err_t *err);
 
+/* Asks the provider to free whatever server-side resources `cfg->model` is
+ * holding onto (e.g. unloading it from VRAM/RAM) now rather than waiting
+ * for its own idle timeout. Only meaningful for a locally-hosted model --
+ * optional, NULL for providers where there's nothing to free (a hosted API
+ * has no such concept). Best-effort: callers log a failure, never treat it
+ * as fatal. */
+typedef int (*llm_unload_fn)(const llm_cfg_t *cfg, err_t *err);
+
 typedef struct llm_provider_t
 {
     const char *name;
     llm_complete_fn complete;
     llm_complete_json_fn complete_json; /* optional; NULL if this provider can't enforce a schema */
+    llm_unload_fn unload;               /* optional; NULL if this provider has nothing to free */
 } llm_provider_t;
 
 /* Looks up a provider by name: "anthropic", "openai" (OpenAI-compatible --

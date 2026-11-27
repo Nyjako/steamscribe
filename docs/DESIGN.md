@@ -284,12 +284,37 @@ typedef struct {
                           const char *system, const char *user,
                           const char *json_schema,
                           strbuf *out, err_t *err);
+    int (*unload)(const llm_cfg *cfg, err_t *err);       /* optional; NULL if nothing to free */
 } llm_provider;
 ```
 
-- **anthropic**: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key`, `anthropic-version: 2023-06-01`, read `content[0].text`. No `complete_json`.
-- **openai** (compatible): `POST <base_url>/chat/completions`, `Authorization: Bearer`, read `choices[0].message.content`. Covers OpenAI, LM Studio, OpenRouter, and others. No `complete_json`. Since LM Studio and other local servers are a primary use of this provider, it uses the same longer (180s) request timeout as `ollama` rather than the shared 30s default -- confirmed necessary against a real LM Studio instance, where the default timed out.
-- **ollama**: Ollama's *native* API, not the OpenAI-compatible one -- `POST <base_url>/api/chat` (default `http://localhost:11434`), `stream: false`, `think: false` (skips `<think>` stripping for reasoning-style models), an `options.num_ctx` from config, and `complete_json` sets `format` to the call's JSON schema so most parse failures never happen server-side. Local CPU inference can be slow, so this provider uses a longer (180s) request timeout than the shared default.
+- **anthropic**: `POST https://api.anthropic.com/v1/messages`, headers `x-api-key`, `anthropic-version: 2023-06-01`, read `content[0].text`. No `complete_json`, no `unload` (nothing server-side to free on a hosted API).
+- **openai** (compatible): `POST <base_url>/chat/completions`, `Authorization: Bearer`, read `choices[0].message.content`. Covers OpenAI, LM Studio, OpenRouter, and others. No `complete_json`, no `unload`. Since LM Studio and other local servers are a primary use of this provider, it uses the same longer (180s) request timeout as `ollama` rather than the shared 30s default -- confirmed necessary against a real LM Studio instance, where the default timed out.
+- **ollama**: Ollama's *native* API, not the OpenAI-compatible one -- `POST <base_url>/api/chat` (default `http://localhost:11434`), `stream: false`, `think: false` (skips `<think>` stripping for reasoning-style models), an `options.num_ctx` from config, and `complete_json` sets `format` to the call's JSON schema so most parse failures never happen server-side. Local CPU inference can be slow, so this provider uses a longer (180s) request timeout than the shared default. The default provider as of M6 -- it needs no API key and runs fully locally, which fits the project's "just works" goal better than requiring a hosted key up front; see `docs/PROVIDERS.md` for a recommended-models shortlist.
+
+`unload` (ollama only) sends `POST <base_url>/api/chat` with an empty `messages` array and
+`keep_alive: 0` -- a keep_alive update, not a new completion, so it costs no tokens and
+generates nothing. `pipeline_unload_llm_model()` calls it (best-effort; a failure is just
+logged) right after a review is actually generated, in both `main.c` and `tui/app.c`'s
+`bg_generate_review_thread` -- not after the intermediate calls (themes, follow-up,
+spoiler prediction), so those still benefit from the model staying loaded between calls
+within one run. Verified manually against a real local Ollama server: `ollama ps` showed
+the model loaded after a normal chat call, then gone (with `done_reason: "unload"` in the
+response) immediately after sending the same payload this function sends.
+
+### 4.5 Testing a provider/model before saving
+The Settings screen (**F2**) can test its *staged* (not-yet-saved) provider/model/
+base_url/num_ctx with **Ctrl+T**: `pipeline_test_llm_connection()` builds a throwaway
+`config_t` with those four fields substituted in (Anthropic/OpenAI keys still come from
+the real `cfg`, since Settings never stages those -- they're env-only), resolves it
+through the same `pipeline_resolve_llm()` used everywhere else (so a missing key fails
+exactly the same way it would for a real review), then makes one minimal real
+`complete()` call ("reply with just the word OK") to confirm the provider/model/endpoint
+combination actually works end to end, not just that a key is present. Runs on its own
+loading screen (`TUI_SCREEN_LOADING_TEST_CONNECTION`) so a slow or unreachable server
+doesn't freeze the UI, same spinner-thread pattern as every other background call. The
+result (success with the model's reply, or the actual error) lands in the status bar
+back on Settings -- it never touches `cfg` or `config.ini` itself.
 
 ---
 

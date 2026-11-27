@@ -109,4 +109,41 @@ static int ollama_complete_json(const llm_cfg_t *cfg, const char *system, const 
     return ollama_chat(cfg, system, user, json_schema, out, err);
 }
 
-const llm_provider_t llm_provider_ollama = {"ollama", ollama_complete, ollama_complete_json};
+/* Tells Ollama to drop cfg->model from memory right away (`keep_alive: 0`)
+ * instead of waiting for its default ~5-minute idle timeout -- local
+ * inference holds onto a meaningful chunk of VRAM/RAM for as long as a
+ * model stays loaded, and a review run is normally a one-shot thing, not
+ * something to keep that reserved for. An empty `messages` array means
+ * this is a keep_alive update, not a new completion -- no tokens get
+ * generated, no sampling parameters needed. */
+static int ollama_unload(const llm_cfg_t *cfg, err_t *err)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "model", cfg->model);
+    cJSON_AddArrayToObject(root, "messages");
+    cJSON_AddNumberToObject(root, "keep_alive", 0);
+
+    char *body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!body)
+    {
+        err_set(err, -1, "out of memory building ollama unload request");
+        return -1;
+    }
+
+    const char *base_url = (cfg->base_url && cfg->base_url[0]) ? cfg->base_url : OLLAMA_DEFAULT_BASE_URL;
+    char url[512];
+    snprintf(url, sizeof(url), "%s/api/chat", base_url);
+
+    http_cfg_t http_cfg = http_cfg_default();
+
+    strbuf_t response;
+    strbuf_init(&response);
+
+    int rc = http_post_json(&http_cfg, url, NULL, 0, body, &response, err);
+    free(body);
+    strbuf_free(&response);
+    return rc;
+}
+
+const llm_provider_t llm_provider_ollama = {"ollama", ollama_complete, ollama_complete_json, ollama_unload};

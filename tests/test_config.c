@@ -15,6 +15,14 @@ static int test_defaults_and_env_key(void)
     unsetenv("OPENAI_API_KEY");
     unsetenv("STEAM_API_KEY");
 
+    /* TEST_TMP_DIR survives between local test runs (only a clean build
+     * wipes it), so without this a leftover config.ini from before a
+     * DEFAULT_CONFIG_INI change would get silently reused instead of
+     * regenerated, making this "first run" test not actually exercise a
+     * first run. CI always starts from a clean checkout, so it never hit
+     * this -- only a local rerun after editing the default template would. */
+    remove(TEST_TMP_DIR "/config_defaults/steamscribe/config.ini");
+
     arena_t arena;
     arena_init(&arena, 0);
 
@@ -23,7 +31,7 @@ static int test_defaults_and_env_key(void)
     int rc = config_load(&arena, &cfg, &err);
 
     TEST_ASSERT(rc == 0);
-    TEST_ASSERT(strcmp(cfg.llm_provider, "anthropic") == 0);
+    TEST_ASSERT(strcmp(cfg.llm_provider, "ollama") == 0);
     TEST_ASSERT(strcmp(cfg.steam_language, "english") == 0);
     TEST_ASSERT(cfg.steam_review_count == 200);
     TEST_ASSERT(cfg.steam_cache_ttl_hours == 24);

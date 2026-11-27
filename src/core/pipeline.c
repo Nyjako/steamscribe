@@ -7,6 +7,7 @@
 #include "net/http.h"
 #include "steam/cache.h"
 #include "util/debug_log.h"
+#include "util/strbuf.h"
 
 int pipeline_resolve_llm(const config_t *cfg, const llm_provider_t **out_provider, llm_cfg_t *out_cfg, err_t *err)
 {
@@ -164,4 +165,42 @@ int pipeline_fetch_library(arena_t *arena, const config_t *cfg, steam_library_t 
 
     debug_logf("library: fetched %zu game(s)", out->count);
     return 0;
+}
+
+int pipeline_test_llm_connection(arena_t *arena, const config_t *cfg, const char *provider_name, const char *model, const char *base_url, int num_ctx, char **out_reply, err_t *err)
+{
+    config_t test_cfg = *cfg;
+    test_cfg.llm_provider = (char *)provider_name;
+    test_cfg.llm_model = (char *)model;
+    test_cfg.llm_base_url = (char *)base_url;
+    test_cfg.llm_num_ctx = num_ctx;
+
+    const llm_provider_t *provider;
+    llm_cfg_t llm_cfg;
+    if (pipeline_resolve_llm(&test_cfg, &provider, &llm_cfg, err) != 0) return -1;
+
+    strbuf_t response;
+    strbuf_init(&response);
+
+    int rc = provider->complete(&llm_cfg, "You are being used to test connectivity. Reply with just the word OK.", "Respond now.", &response, err);
+    if (rc == 0) *out_reply = arena_strdup(arena, strbuf_cstr(&response));
+
+    strbuf_free(&response);
+    return rc;
+}
+
+void pipeline_unload_llm_model(const llm_provider_t *provider, const llm_cfg_t *llm_cfg)
+{
+    if (!provider->unload) return;
+
+    err_t err;
+    err_clear(&err);
+
+    if (provider->unload(llm_cfg, &err) != 0)
+    {
+        debug_logf("unload: failed to unload %s model \"%s\" (code %d), leaving it loaded", provider->name, llm_cfg->model, err.code);
+        return;
+    }
+
+    debug_logf("unload: asked %s to unload model \"%s\"", provider->name, llm_cfg->model);
 }
