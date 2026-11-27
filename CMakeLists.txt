@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 # requiring every contributor to pass the flag by hand.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-project(steamscribe VERSION 0.1.0 LANGUAGES C)
+project(steamscribe VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

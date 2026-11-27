@@ -1,14 +1,17 @@
 name: Release
 
-# There's no per-commit version-bump automation yet (see docs/ROADMAP.md M6),
-# so this isn't a tagged release per platform/arch -- it republishes a single
-# rolling "continuous" pre-release every time master changes, so there's
-# always a current downloadable build of master without anyone having to cut
-# a version tag by hand. A real tagged v1.0 (and beyond) is still a separate,
-# later step.
+# Two distinct triggers, handled differently by the release job below:
+# - A push to master (no tag): republishes a single rolling "continuous"
+#   pre-release, so there's always a current downloadable build of master
+#   without anyone having to cut a version tag by hand.
+# - A pushed tag matching v* (e.g. v1.0.0): publishes a real, permanent,
+#   non-prerelease GitHub Release named after that tag, with the same
+#   Linux/macOS binaries attached. This is the "v1.0 tagged with
+#   downloadable binaries" step from docs/ROADMAP.md M6.
 on:
   push:
     branches: [master]
+    tags: ["v*"]
 
 permissions:
   contents: write
@@ -74,7 +77,20 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Publish a tagged release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" dist/*.tar.gz \
+            --title "steamscribe $TAG" \
+            --generate-notes \
+            --target "${{ github.sha }}"
+
       - name: Publish the rolling "continuous" pre-release
+        if: github.ref_type == 'branch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
