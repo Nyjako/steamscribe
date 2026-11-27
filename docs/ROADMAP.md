@@ -112,7 +112,9 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 **Goal:** others can install and use it.
 
 - [x] README with a real asciinema recording (end-to-end against the real Steam API and a local
-      Ollama model) -- `docs/demo/demo.cast`, linked from the new README "Demo" section
+      Ollama model) -- `docs/demo/demo.cast`, linked from the new README "Demo" section, plus an
+      animated GIF rendering of the same recording (`docs/demo/demo.gif`, via `agg`) embedded
+      inline so it plays in the README directly, not just a click-through link
 - [x] `cmake --install` support (installs the binary plus README/LICENSE under a normal
       prefix's `bin`/`share/doc`; cJSON's own install rules are excluded via CPM's
       `EXCLUDE_FROM_ALL` so they don't leak into the install tree). Man page / further `--help`
@@ -125,8 +127,10 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
       later step -- that's what "Done when" below still refers to.
 - [x] ~~AUR package / Homebrew tap (optional)~~ -- explicitly skipped, not worth maintaining for
       this project right now
-- [x] License (MIT, matching GOBLIN's own dual MIT/Unlicense) added at the repo root. CONTRIBUTING
-      and issue templates not done yet.
+- [x] License (MIT, matching GOBLIN's own dual MIT/Unlicense) added at the repo root.
+- [x] `CONTRIBUTING.md` (branches, building, tests, code style, commit/PR conventions) and
+      GitHub issue templates (bug report / feature request, as issue forms under
+      `.github/ISSUE_TEMPLATE/`) -- linked from the README.
 
 **Done when:** **v1.0** tagged with downloadable binaries.
 

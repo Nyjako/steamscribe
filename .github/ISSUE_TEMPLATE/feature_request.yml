@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an idea for steamscribe.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Worth a quick look at [docs/ROADMAP.md](https://github.com/Nyjako/steamscribe/blob/dev/docs/ROADMAP.md)
+        first -- it might already be planned (or explicitly decided against, under "Later / ideas").
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do that steamscribe doesn't support today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you'd picture it working -- a new flag, a TUI screen/keybinding, a config option, ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other way you've thought of solving this, or workarounds you're using now.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked docs/ROADMAP.md and this isn't already planned or explicitly ruled out
+          required: true

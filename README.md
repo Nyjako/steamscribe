@@ -176,6 +176,11 @@ steamscribe themes 892970      # print extracted likes/dislikes as JSON
 
 Other players' reviews are only used to **suggest topics to ask you about**. The generated review contains only the points you checked or typed yourself, plus your recommendation. Nothing is posted automatically: you copy the text and submit it on Steam yourself.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) -- branches, building, tests, code style, and how
+PRs/issues are handled.
+
 ## License
 
-TBD (MIT suggested).
+MIT -- see [LICENSE](LICENSE).
