@@ -22,5 +22,6 @@
 #define TUI_KEY_F2          (0xffffu - 1)
 #define TUI_KEY_F3          (0xffffu - 2)
 #define TUI_KEY_CTRL_S      0x13
+#define TUI_KEY_CTRL_T      0x14
 
 #endif

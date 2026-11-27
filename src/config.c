@@ -16,12 +16,21 @@
 
 static const char *DEFAULT_CONFIG_INI =
     "[llm]\n"
-    "provider = anthropic          ; anthropic | openai | ollama\n"
-    "model    = claude-haiku-5-5\n"
-    "; base_url = http://localhost:1234/v1    ; for LM Studio (provider = openai)\n"
-    "; For a local Ollama model instead, use provider = ollama (talks to Ollama's own\n"
-    "; API, not the OpenAI-compatible one; defaults to http://localhost:11434).\n"
+    "; See docs/PROVIDERS.md for how to set each of these up (getting a key, picking a\n"
+    "; model, ...) -- ollama is the default since it needs no API key and runs fully\n"
+    "; locally; swap in one of the commented blocks below for a hosted provider instead.\n"
+    "provider = ollama              ; anthropic | openai | ollama\n"
+    "model    = qwen3.5-9b          ; swap for whatever local model you've pulled -- see\n"
+    "                               ; docs/PROVIDERS.md for a few known to work well\n"
     "; num_ctx  = 8192              ; ollama only -- raise this if reviews get truncated\n"
+    "; base_url = http://localhost:11434    ; ollama only; this is already the default\n"
+    "\n"
+    "; provider = anthropic         ; needs ANTHROPIC_API_KEY in your environment\n"
+    "; model    = claude-haiku-5-5\n"
+    "\n"
+    "; provider = openai            ; needs OPENAI_API_KEY, unless base_url below points\n"
+    "; model    = gpt-4o-mini       ; at a local OpenAI-compatible server (LM Studio, ...)\n"
+    "; base_url = http://localhost:1234/v1\n"
     "\n"
     "[steam]\n"
     "language    = english\n"
@@ -144,8 +153,8 @@ int config_load(arena_t *arena, config_t *out, err_t *err)
     ini_parse(path, steamscribe_ini_handler, &raw);
     free(path);
 
-    out->llm_provider = arena_strdup(arena, raw.llm_provider ? raw.llm_provider : "anthropic");
-    out->llm_model = arena_strdup(arena, raw.llm_model ? raw.llm_model : "claude-haiku-5-5");
+    out->llm_provider = arena_strdup(arena, raw.llm_provider ? raw.llm_provider : "ollama");
+    out->llm_model = arena_strdup(arena, raw.llm_model ? raw.llm_model : "qwen3.5-9b");
     out->llm_base_url = arena_strdup(arena, raw.llm_base_url ? raw.llm_base_url : "");
     out->llm_num_ctx = raw.llm_num_ctx ? atoi(raw.llm_num_ctx) : 8192;
     out->steam_language = arena_strdup(arena, raw.steam_language ? raw.steam_language : "english");
@@ -233,6 +242,7 @@ int config_save(const config_t *cfg, err_t *err)
     }
 
     fprintf(fp, "[llm]\n");
+    fprintf(fp, "; See docs/PROVIDERS.md for how to set up each provider (getting a key, picking a model, ...)\n");
     fprintf(fp, "provider = %s          ; anthropic | openai | ollama\n", cfg->llm_provider);
     fprintf(fp, "model    = %s\n", cfg->llm_model);
     if (cfg->llm_base_url[0]) fprintf(fp, "base_url = %s\n", cfg->llm_base_url);

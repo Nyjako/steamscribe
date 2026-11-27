@@ -1457,6 +1457,70 @@ static int test_settings_ctrl_s_commits_to_cfg_and_returns_action(void)
     return 0;
 }
 
+static int test_settings_ctrl_t_tests_the_staged_values_before_saving(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, "valheim", 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+
+    tui_handle_key(&state, 'j', 0);          /* -> Model */
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* edit */
+    tui_handle_key(&state, 'x', 0);
+    tui_handle_key(&state, 0, TUI_KEY_ENTER); /* confirm edit, still not saved to cfg */
+
+    TEST_ASSERT(tui_handle_key(&state, 0, TUI_KEY_CTRL_T) == TUI_ACTION_TEST_LLM_CONNECTION);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_TEST_CONNECTION);
+    TEST_ASSERT(strstr(state.settings_model, "x") != NULL); /* staged edit survives into the test */
+    TEST_ASSERT(strcmp(cfg.llm_model, "x") != 0);            /* but cfg itself is untouched */
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_test_connection_ok_returns_to_settings_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 0, TUI_KEY_CTRL_T);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_TEST_CONNECTION);
+
+    tui_apply_test_connection_ok(&state, "OK");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS);
+    TEST_ASSERT(strstr(state.status, "OK") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
+static int test_apply_test_connection_failed_returns_to_settings_with_status(void)
+{
+    arena_t arena;
+    arena_init(&arena, 0);
+
+    config_t cfg = make_fake_config(&arena);
+    app_state_t state;
+    tui_state_init(&state, &arena, &cfg, NULL, 0);
+    tui_handle_key(&state, 0, TUI_KEY_F2);
+    tui_handle_key(&state, 0, TUI_KEY_CTRL_T);
+    TEST_ASSERT(state.screen == TUI_SCREEN_LOADING_TEST_CONNECTION);
+
+    tui_apply_test_connection_failed(&state, "connection refused");
+    TEST_ASSERT(state.screen == TUI_SCREEN_SETTINGS);
+    TEST_ASSERT(strstr(state.status, "connection refused") != NULL);
+
+    arena_free(&arena);
+    return 0;
+}
+
 static int test_settings_save_failed_stays_on_settings_with_status(void)
 {
     arena_t arena;
@@ -1761,6 +1825,9 @@ int main(void)
     if (test_settings_esc_while_editing_reverts_field()) return 1;
     if (test_settings_esc_in_nav_mode_discards_and_returns()) return 1;
     if (test_settings_ctrl_s_commits_to_cfg_and_returns_action()) return 1;
+    if (test_settings_ctrl_t_tests_the_staged_values_before_saving()) return 1;
+    if (test_apply_test_connection_ok_returns_to_settings_with_status()) return 1;
+    if (test_apply_test_connection_failed_returns_to_settings_with_status()) return 1;
     if (test_settings_save_failed_stays_on_settings_with_status()) return 1;
     if (test_settings_q_quits_in_nav_mode()) return 1;
     if (test_settings_review_count_field_edits_and_commits()) return 1;

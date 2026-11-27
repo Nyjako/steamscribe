@@ -21,6 +21,12 @@
 #include "tui/state.h"
 #include "tui/widgets.h"
 
+/* Mirrors the fixed provider list tui/state.c cycles the Settings "Provider"
+ * field through (that list is private to state.c -- this is app.c's own
+ * copy, used both to draw the field's current choice and to resolve it to
+ * an actual provider name for the "test connection" action). */
+static const char *SETTINGS_PROVIDER_NAMES[] = {"anthropic", "openai", "ollama"};
+
 /* Set once tui_run() has a live app_state_t, so a fatal signal's handler
  * (which gets no arguments of its own) can still recover whatever status
  * or error text was last shown, and print it after the terminal is
@@ -63,7 +69,7 @@ static void install_signal_handlers(void)
 static bool is_loading_screen(tui_screen_t screen)
 {
     return screen == TUI_SCREEN_LOADING_LIBRARY || screen == TUI_SCREEN_LOADING_GAME || screen == TUI_SCREEN_LOADING_FOLLOWUP || screen == TUI_SCREEN_LOADING_SPOILER_PREDICT ||
-           screen == TUI_SCREEN_LOADING_REVIEW;
+           screen == TUI_SCREEN_LOADING_REVIEW || screen == TUI_SCREEN_LOADING_TEST_CONNECTION;
 }
 
 /* `mask`, when true and the field isn't being actively edited, displays
@@ -248,16 +254,20 @@ static void draw(app_state_t *state, char spinner_ch)
             widgets_draw_status_bar(state->arena, state->status);
             break;
 
+        case TUI_SCREEN_LOADING_TEST_CONNECTION:
+            widgets_draw_header(1, "Testing connection...");
+            tb_printf(2, 3, TB_DEFAULT, TB_DEFAULT, "%c Trying provider/model/base_url as currently entered (not yet saved)...", spinner_ch);
+            break;
+
         case TUI_SCREEN_SETTINGS:
         {
-            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles choices, Enter edits text, Ctrl+S saves, Esc cancels");
+            widgets_draw_header(1, "Settings -- j/k fields, h/l or Enter cycles choices, Enter edits text, Ctrl+T tests, Ctrl+S saves, Esc cancels");
 
-            static const char *provider_names[] = {"anthropic", "openai", "ollama"};
             static const char *length_names[] = {"short", "medium", "long"};
             static const char *tone_names[] = {"casual", "neutral", "enthusiastic"};
             static const char *vocab_names[] = {"normal", "simple"};
 
-            draw_settings_field(3, "Provider:", provider_names[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false, false);
+            draw_settings_field(3, "Provider:", SETTINGS_PROVIDER_NAMES[state->settings_provider_index], 0, state->settings_field == TUI_SETTINGS_FIELD_PROVIDER, false, false);
             draw_settings_field(4, "Model:", state->settings_model, state->settings_model_cursor, state->settings_field == TUI_SETTINGS_FIELD_MODEL, state->settings_editing, false);
             draw_settings_field(5, "Base URL:", state->settings_base_url, state->settings_base_url_cursor, state->settings_field == TUI_SETTINGS_FIELD_BASE_URL, state->settings_editing, false);
             draw_settings_field(6, "Num ctx:", state->settings_num_ctx, state->settings_num_ctx_cursor, state->settings_field == TUI_SETTINGS_FIELD_NUM_CTX, state->settings_editing, false);
@@ -270,11 +280,12 @@ static void draw(app_state_t *state, char spinner_ch)
             draw_settings_field(13, "Tone:", tone_names[state->settings_review_tone_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_TONE, false, false);
             draw_settings_field(14, "Vocab:", vocab_names[state->settings_review_vocab_index], 0, state->settings_field == TUI_SETTINGS_FIELD_REVIEW_DEFAULT_VOCAB, false, false);
 
-            tb_print(2, 16, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
-            tb_print(2, 17, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
-            tb_print(2, 18, TB_DEFAULT, TB_DEFAULT, "Steam ID/key: your own SteamID64 + a Steam Web API key -- enables playtime in reviews.");
-            tb_print(2, 19, TB_DEFAULT, TB_DEFAULT, "Steam key is encrypted at rest once saved. Anthropic/OpenAI keys stay env-only, not here.");
-            if (state->cfg->steam_api_key_from_env) tb_print(2, 20, TB_DEFAULT, TB_DEFAULT, "Steam key is currently set via STEAM_API_KEY in the environment (takes priority over this).");
+            tb_print(2, 16, TB_DEFAULT, TB_DEFAULT, "Provider/model/key setup for all three: see docs/PROVIDERS.md. Ctrl+T tests the values above.");
+            tb_print(2, 17, TB_DEFAULT, TB_DEFAULT, "Base URL: empty uses the provider's default. Num ctx: ollama only.");
+            tb_print(2, 18, TB_DEFAULT, TB_DEFAULT, "Reviews: how many player reviews to sample for theme extraction.");
+            tb_print(2, 19, TB_DEFAULT, TB_DEFAULT, "Steam ID/key: your own SteamID64 + a Steam Web API key -- enables playtime in reviews.");
+            tb_print(2, 20, TB_DEFAULT, TB_DEFAULT, "Steam key is encrypted at rest once saved. Anthropic/OpenAI keys stay env-only, not here.");
+            if (state->cfg->steam_api_key_from_env) tb_print(2, 21, TB_DEFAULT, TB_DEFAULT, "Steam key is currently set via STEAM_API_KEY in the environment (takes priority over this).");
             widgets_draw_status_bar(state->arena, state->status);
             break;
         }
@@ -324,6 +335,7 @@ typedef struct bg_result_t
     size_t n_questions;
     char *spoiler_guess;
     char *review_text;
+    char *test_connection_reply;
 } bg_result_t;
 
 typedef struct bg_ctx_t
@@ -487,12 +499,43 @@ static void *bg_generate_review_thread(void *argp)
         req.playtime_hours = playtime.found ? playtime.playtime_minutes / 60 : 0;
 
         rc = review_generate(ctx->state->arena, provider, &llm_cfg, &req, &review_text, &err);
+        if (rc == 0) pipeline_unload_llm_model(provider, &llm_cfg);
     }
 
     pthread_mutex_lock(&result->mutex);
     result->rc = rc;
     result->err = err;
     result->review_text = review_text;
+    result->done = true;
+    pthread_mutex_unlock(&result->mutex);
+
+    free(ctx);
+    return NULL;
+}
+
+/* Tests the Settings screen's *staged* provider/model/base_url/num_ctx
+ * (not whatever's already saved to ctx->cfg) with one real, minimal
+ * completion call -- so a typo'd model name or an unreachable base_url
+ * shows up right there in Settings, before Ctrl+S commits it and it only
+ * surfaces later as a failed review. */
+static void *bg_test_connection_thread(void *argp)
+{
+    bg_ctx_t *ctx = (bg_ctx_t *)argp;
+    bg_result_t *result = ctx->result;
+
+    err_t err;
+    err_clear(&err);
+
+    const char *provider_name = SETTINGS_PROVIDER_NAMES[ctx->state->settings_provider_index];
+    int num_ctx = ctx->state->settings_num_ctx_len > 0 ? atoi(ctx->state->settings_num_ctx) : 0;
+
+    char *reply = NULL;
+    int rc = pipeline_test_llm_connection(ctx->state->arena, ctx->cfg, provider_name, ctx->state->settings_model, ctx->state->settings_base_url, num_ctx, &reply, &err);
+
+    pthread_mutex_lock(&result->mutex);
+    result->rc = rc;
+    result->err = err;
+    if (rc == 0) result->test_connection_reply = reply;
     result->done = true;
     pthread_mutex_unlock(&result->mutex);
 
@@ -797,6 +840,11 @@ static void run_loading_screen(app_state_t *state, const config_t *cfg, void *(*
         if (result.rc == 0) tui_apply_spoiler_predicted(state, result.spoiler_guess);
         else tui_apply_spoiler_predict_failed(state);
     }
+    else if (state->screen == TUI_SCREEN_LOADING_TEST_CONNECTION)
+    {
+        if (result.rc == 0) tui_apply_test_connection_ok(state, result.test_connection_reply);
+        else tui_apply_test_connection_failed(state, result.err.msg);
+    }
     else
     {
         if (result.rc == 0) tui_apply_review_generated(state, result.review_text);
@@ -828,6 +876,7 @@ int tui_run(arena_t *arena, config_t *cfg, const tui_options_t *options, err_t *
             else if (loading_screen == TUI_SCREEN_LOADING_GAME) thread_fn = bg_load_game_thread;
             else if (loading_screen == TUI_SCREEN_LOADING_FOLLOWUP) thread_fn = bg_generate_followup_thread;
             else if (loading_screen == TUI_SCREEN_LOADING_SPOILER_PREDICT) thread_fn = bg_predict_spoiler_thread;
+            else if (loading_screen == TUI_SCREEN_LOADING_TEST_CONNECTION) thread_fn = bg_test_connection_thread;
 
             run_loading_screen(&state, cfg, thread_fn);
             continue;
