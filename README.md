@@ -37,6 +37,18 @@ $ steamscribe valheim
 
 🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), optional AI-generated follow-up questions, notes/options, and a generated review you can edit in `$EDITOR`, copy to clipboard, or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look, and saving a copy to disk is still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
+## Demo
+
+Recorded end-to-end against the real Steam API and a local Ollama model: searching for a game, checking off what you liked/disliked, a couple of AI-generated follow-up questions, and the resulting review.
+
+[![asciicast](https://asciinema.org/a/szWhZOo372xvVdWo.svg)](https://asciinema.org/a/szWhZOo372xvVdWo)
+
+Or play the same recording locally from this repo, no network needed:
+
+```bash
+asciinema play docs/demo/demo.cast
+```
+
 ## Features (planned)
 
 - Search Steam games by name

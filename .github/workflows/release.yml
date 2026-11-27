@@ -1,0 +1,87 @@
+name: Release
+
+# There's no per-commit version-bump automation yet (see docs/ROADMAP.md M6),
+# so this isn't a tagged release per platform/arch -- it republishes a single
+# rolling "continuous" pre-release every time master changes, so there's
+# always a current downloadable build of master without anyone having to cut
+# a version tag by hand. A real tagged v1.0 (and beyond) is still a separate,
+# later step.
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_name: steamscribe-linux-x86_64
+
+          - os: macos-latest
+            asset_name: steamscribe-macos-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install curl
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          set -eu
+          STAGE_DIR="${{ matrix.asset_name }}"
+          mkdir -p "$STAGE_DIR"
+          cp build/steamscribe "$STAGE_DIR/"
+          cp README.md LICENSE "$STAGE_DIR/"
+          tar -czf "${{ matrix.asset_name }}.tar.gz" "$STAGE_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the rolling "continuous" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete continuous --yes --cleanup-tag || true
+          gh release create continuous dist/*.tar.gz \
+            --title "Continuous build (latest master)" \
+            --notes "Automatically rebuilt from master @ ${{ github.sha }}. Not a tagged version -- see release assets tagged v* for stable releases." \
+            --prerelease \
+            --target "${{ github.sha }}"
