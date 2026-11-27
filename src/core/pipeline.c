@@ -186,6 +186,13 @@ int pipeline_test_llm_connection(arena_t *arena, const config_t *cfg, const char
     if (rc == 0) *out_reply = arena_strdup(arena, strbuf_cstr(&response));
 
     strbuf_free(&response);
+
+    /* A successful test call just loaded the model (ollama) exactly like a
+     * real review would -- unload it again so Ctrl+T doesn't leave it
+     * sitting in VRAM/RAM until Ollama's own idle timeout just because you
+     * were trying out a model, not actually generating a review. */
+    if (rc == 0) pipeline_unload_llm_model(provider, &llm_cfg);
+
     return rc;
 }
 
