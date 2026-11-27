@@ -37,6 +37,25 @@ $ steamscribe valheim
 
 🚧 Early development. Both the full TUI and the `--plain` line-based flow shown above work end-to-end: search, reviews, checklist (including adding your own items or moving one to the other side), optional AI-generated follow-up questions, notes/options, and a generated review you can edit in `$EDITOR`, copy to clipboard, or regenerate -- the checklist's two-column layout pictured above is still just the aspirational look, and saving a copy to disk is still ahead. See [ROADMAP.md](ROADMAP.md) for the plan and [DESIGN.md](DESIGN.md) for how it works.
 
+## Demo
+
+Recorded end-to-end against the real Steam API and a local Ollama model: searching for a game, checking off what you liked/disliked, a couple of AI-generated follow-up questions, and the resulting review -- picked up right where it lands on the Result screen:
+
+```
+  Your review -- (r) regenerate, (e) edit, (c) copy, (s) save, (o) change answers, (n) pick another game, (q) quit
+
+  The combat feels difficult but fair, and the hand-drawn art style and incredible soundtrack make
+  the atmosphere truly special. I did spend way too much time running back to checkpoints that
+  were too far from boss fights, which got tedious sometimes. Despite the backtracking, I loved
+  the boss fights and the overall vibe. I recommend Hollow Knight (9/10).
+```
+
+That's a frame from a full [asciinema](https://asciinema.org) recording of the whole run (~30s) at [docs/demo/demo.cast](docs/demo/demo.cast). Play it locally with:
+
+```bash
+asciinema play docs/demo/demo.cast
+```
+
 ## Features (planned)
 
 - Search Steam games by name

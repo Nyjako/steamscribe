@@ -12,7 +12,10 @@ Each milestone ends with something you can run. The TUI comes late on purpose: t
 - [x] `steamscribe --version` and `--help`
 - [x] `util/`: arena, strbuf, error type
 - [x] CTest wired up with one dummy test
-- [x] GitHub Actions: build + test on Ubuntu (Linux is the priority platform; macOS CI dropped for now)
+- [x] GitHub Actions: build + test on Ubuntu (Linux is the priority platform; macOS CI dropped for
+      now, then brought back in M6 once nothing Linux-specific had crept in -- termbox2 and GOBLIN
+      both already handle non-Windows platforms generically, so it built clean on `macos-latest`
+      with no source changes needed)
 
 **Done when:** a fresh clone builds with two CMake commands and CI is green.
 
@@ -108,11 +111,22 @@ gracefully (shows the error, doesn't crash) rather than reaching a real review.
 ## M6 – Release
 **Goal:** others can install and use it.
 
-- [ ] README with real screenshots or an asciinema recording
-- [ ] `cmake --install` support, man page or `--help` polish
-- [ ] Release binaries for Linux x86_64 and macOS via GitHub Actions
-- [ ] AUR package / Homebrew tap (optional)
-- [ ] License, CONTRIBUTING, issue templates
+- [x] README with a real asciinema recording (end-to-end against the real Steam API and a local
+      Ollama model) -- `docs/demo/demo.cast`, linked from the new README "Demo" section
+- [x] `cmake --install` support (installs the binary plus README/LICENSE under a normal
+      prefix's `bin`/`share/doc`; cJSON's own install rules are excluded via CPM's
+      `EXCLUDE_FROM_ALL` so they don't leak into the install tree). Man page / further `--help`
+      polish not done yet.
+- [x] Release binaries for Linux x86_64 and macOS (arm64, via `macos-latest`) built and published
+      by a new `release.yml` GitHub Action on every push to `master` -- republishes a rolling
+      `continuous` pre-release (see the workflow's own comment for why: no per-commit
+      version-bump automation exists yet, so this isn't a tagged release per platform/arch, just
+      an always-current downloadable build of master). A real tagged v1.0 is still a separate,
+      later step -- that's what "Done when" below still refers to.
+- [x] ~~AUR package / Homebrew tap (optional)~~ -- explicitly skipped, not worth maintaining for
+      this project right now
+- [x] License (MIT, matching GOBLIN's own dual MIT/Unlicense) added at the repo root. CONTRIBUTING
+      and issue templates not done yet.
 
 **Done when:** **v1.0** tagged with downloadable binaries.
 

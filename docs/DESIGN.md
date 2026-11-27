@@ -568,6 +568,7 @@ to copy an env-sourced key into the file just because some unrelated setting cha
 - **`test_pipeline`:** `pipeline_resolve_llm()`'s provider/API-key resolution -- a missing key fails fast for anthropic and for openai against the real API, but not for openai against a local `base_url`, since that's the documented no-key case.
 - **`test_secret_crypto`:** the ChaCha20 encrypt/decrypt round trip (including against a fixed key, so it doesn't depend on `/dev/urandom` behaving any particular way), that two encryptions of the same plaintext differ (fresh nonce), and that `secret_crypto_load_or_create_key()` is idempotent (isolated via `XDG_DATA_HOME`, same technique `test_config` already uses for `XDG_CONFIG_HOME`).
 - **Sanitizers:** `-DSANITIZE=ON` builds with AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer; CI runs a separate `sanitize` job with it (pulled forward from M5).
+- **CI matrix:** the main `build` job in `.github/workflows/ci.yml` runs on both `ubuntu-latest` and `macos-latest`; `sanitize` stays Linux-only. `.github/workflows/release.yml` (M6) builds + tests + packages both platforms again on every push to `master` and republishes them as a rolling `continuous` pre-release -- see that file's own header comment for why it isn't a real tagged release yet.
 
 ---
 
